@@ -1,0 +1,8 @@
+{
+  "name": "Vyapar - Petrol Pump Manager",
+  "description": "Petrol pump management system for fuel sales, meter readings, stock tracking, customer credit ledger, and worker duty logs.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
