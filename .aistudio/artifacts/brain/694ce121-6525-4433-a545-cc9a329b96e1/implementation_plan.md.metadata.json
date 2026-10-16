@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan for upgrading Density Checks to the exact standard petroleum register format shown in the user spreadsheet: Morning U/G tank density (observed, temp, 15°C), Tank truck compartment receipt densities (I, II, III, IV), Mix compartment density, Challan density at 15°C, Mix vs Challan variation difference, Stock before receipt (dip & stock), and Post-decantation nozzle flush density (after 100L) with Receipt KL and Challan number.",
+  "updatedAt": "2026-10-16T13:53:10.243223607Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

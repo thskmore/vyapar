@@ -50,63 +50,26 @@ async function initDb() {
     amount real not null, note text, d text not null, created integer not null);
   create table if not exists density_register(
     id integer primary key,
+    tank_id text not null,
     d text not null,
-    fuel text not null,
-    tank_id text,
-    m_density real,
+    t integer not null,
+    m_obs real,
     m_temp real,
     m_d15 real,
     comp1 real,
     comp2 real,
     comp3 real,
     comp4 real,
-    mix_density real,
-    challan_d15 real,
-    diff_density real,
-    before_dip real,
-    before_stock real,
-    after_density real,
+    mix_dens real,
+    chalan_dens real,
+    dens_diff real,
+    pre_dip real,
+    pre_stock real,
+    post_dens real,
     receipt_kl real,
-    challan_no text,
-    note text,
+    chalan_no text,
     user_id integer,
-    created integer not null);
-  create table if not exists meter_register(
-    id integer primary key,
-    d text not null,
-    nozzle_id text not null,
-    opening real,
-    closing real,
-    testing real not null default 0,
-    sale real,
-    note text,
-    user_id integer,
-    updated_at integer not null,
-    unique(d, nozzle_id));
-  create index if not exists idx_meter_reg_d on meter_register(d);
-  create index if not exists idx_meter_reg_noz on meter_register(nozzle_id);
-  create table if not exists daily_stock_register(
-    id integer primary key,
-    d text not null,
-    fuel text not null,
-    tank_id text,
-    opening_dip real,
-    opening_stock real,
-    receipt real not null default 0,
-    challan_no text,
-    closing_dip real,
-    closing_stock real,
-    sales_dip real,
-    sales_meter real,
-    testing real not null default 0,
-    book_stock real,
-    variation real,
-    note text,
-    user_id integer,
-    updated_at integer not null,
-    unique(d, fuel));
-  create index if not exists idx_daily_stock_reg_d on daily_stock_register(d);
-  create index if not exists idx_daily_stock_reg_fuel on daily_stock_register(fuel);
+    by_name text);
   `);
 
   const addCol = (t, c, def) => {
@@ -402,14 +365,6 @@ const AUD = {
   "DELETE /api/payroll/items/:id": (q) => `Deleted pay entry #${q.params.id}`,
   "POST /api/dips": (q) => `Tank dip reading for tank #${q.body.tank_id}` + (q.body.d15 || q.body.dens_obs ? " with density" : ""),
   "DELETE /api/dips/:id": (q) => `Deleted dip reading #${q.params.id}`,
-  "POST /api/density-register": (q) => `Recorded density register for ${q.body.d} (${q.body.fuel})`,
-  "POST /api/meter-register": (q) => `Recorded daily meter readings for ${q.body.d}`,
-  "DELETE /api/meter-register/:d": (q) => `Deleted daily meter readings for ${q.params.d}`,
-  "POST /api/meter-register/sync-from-duties": (q) => `Synced daily meter readings from duties for ${q.body.d}`,
-  "POST /api/stock-register": (q) => `Updated daily stock register for ${q.body.d} (${q.body.fuel})`,
-  "POST /api/stock-register/quick-morning-dip": (q) => `Recorded morning dip for ${q.body.d} (${q.body.fuel})`,
-  "POST /api/stock-register/sync": (q) => `Synced daily stock register for ${q.body.month} (${q.body.fuel})`,
-  "DELETE /api/stock-register/:id": (q) => `Deleted stock register entry #${q.params.id}`,
 };
 // ---- Credit customers and worker credit sales
 function customers() {
@@ -483,6 +438,15 @@ function rateFor(st, fuel, date) {
     if (r.fuel === fuel && r.from <= date && (!best || r.from > best.from || (r.from === best.from && r.id > best.id))) best = r;
   });
   return best ? +best.rate : null;
+}
+function fuelRateFor(st, fuel, date) {
+  const direct = rateFor(st, fuel, date);
+  if (direct != null) return direct;
+  let latest = null;
+  (st.rates || []).forEach((r) => {
+    if (r.fuel === fuel && (!latest || r.from > latest.from || (r.from === latest.from && r.id > latest.id))) latest = r;
+  });
+  return latest ? +latest.rate : null;
 }
 const unitOf = (st, fuel) => { const p = (st.fuelprods || []).find((x) => x.name === fuel); return (p && p.unit) || "L"; };
 function lastClose(nid) {
@@ -797,19 +761,89 @@ function fromChart(chart, dip) {
 function tankChecks() {
   const st = stateNow(), tanks = st.tanks || [], dv = st.deliv || [], tankOf = {};
   (st.nozzles || []).forEach((n) => (tankOf[String(n.id)] = String(n.tank_id || "")));
-  const sales = db.prepare("select d.submitted t, dl.nozzle_id n, dl.closing-dl.opening-dl.testing lt from duty_lines dl join duties d on d.id=dl.duty_id where d.status in ('submitted','closed')").all();
+  const sales = db.prepare(`
+    select coalesce(d.submitted, d.closed_at, d.started) t, dl.nozzle_id n,
+           (case when dl.closing is not null and dl.opening is not null and dl.closing >= dl.opening then dl.closing - dl.opening else 0 end) gross,
+           coalesce(dl.testing, 0) testing
+    from duty_lines dl
+    join duties d on d.id=dl.duty_id
+    where d.status in ('submitted','closed')
+  `).all();
   const dips = db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id order by di.t, di.id").all();
-  const sold = (tid, a, b) => r2(sales.filter((x) => tankOf[x.n] === tid && x.t > a && x.t <= b).reduce((s, x) => s + x.lt, 0));
+
+  const getSales = (tid, a, b) => {
+    let gross = 0, testing = 0;
+    sales.filter((x) => tankOf[x.n] === tid && x.t > a && x.t <= b).forEach((x) => {
+      gross += x.gross;
+      testing += x.testing;
+    });
+    gross = r2(gross);
+    testing = r2(testing);
+    const net = r2(gross - testing);
+    return { gross, testing, net };
+  };
+
   const recv = (tid, a, b) => r2(dv.reduce((s, d) => s + (Math.floor(d.ts / 1000) > a && Math.floor(d.ts / 1000) <= b ? (d.lines || []).filter((l) => String(l.tank_id) === tid).reduce((q, l) => q + (+l.litres || 0), 0) : 0), 0));
+
   return tanks.map((tk) => {
     const tid = String(tk.id), ds = dips.filter((x) => x.tank_id === tid), checks = [];
+    let cumSales = 0, cumVar = 0, currentMonth = null;
     for (let i = 1; i < ds.length; i++) {
-      const p = ds[i - 1], c = ds[i], so = sold(tid, p.t, c.t), re = recv(tid, p.t, c.t), exp = r2(p.litres + re - so);
-      checks.push({ id: c.id, from: p.t, to: c.t, opening: p.litres, received: re, sold: so, expected: exp, actual: c.litres, variance: r2(c.litres - exp), by: c.by_name });
+      const p = ds[i - 1], c = ds[i];
+      const sm = getSales(tid, p.t, c.t);
+      const re = recv(tid, p.t, c.t);
+      const totStock = r2(p.litres + re);
+      const sales_by_dip = r2(totStock - c.litres);
+      const diff = r2(sm.net - sales_by_dip);
+      const exp = r2(totStock - sm.net);
+      const dDate = new Date((c.t ? c.t * 1000 : Date.now()) - 6 * 3600e3).toLocaleDateString("en-CA", { timeZone: TZ });
+      const monthKey = dDate.slice(0, 7);
+      if (currentMonth !== monthKey) {
+        currentMonth = monthKey;
+        cumSales = 0;
+        cumVar = 0;
+      }
+      cumSales = r2(cumSales + sm.net);
+      cumVar = r2(cumVar + diff);
+      const fRate = fuelRateFor(st, tk.fuel, dDate) ?? fuelRateFor(st, tk.fuel, bizDate());
+      checks.push({
+        id: c.id,
+        from: p.t,
+        to: c.t,
+        rate: fRate,
+        opening: p.litres,
+        opening_dip: p.dip,
+        received: re,
+        total_stock: totStock,
+        meter_sales: sm.gross,
+        pump_test: sm.testing,
+        net_meter_sales: sm.net,
+        cumulative_sales: cumSales,
+        sold: sm.net,
+        actual: c.litres,
+        closing_dip: c.dip,
+        sales_by_dip: sales_by_dip,
+        diff: diff,
+        cumulative_variation: cumVar,
+        expected: exp,
+        variance: r2(c.litres - exp),
+        note: c.note || "",
+        by: c.by_name
+      });
     }
     const last = ds[ds.length - 1] || null;
-    const book = last ? r2(last.litres + recv(tid, last.t, now()) - sold(tid, last.t, now())) : null;
-    return { id: tk.id, name: tk.name, fuel: tk.fuel, capacity: tk.capacity || 0, last: last ? { id: last.id, litres: last.litres, t: last.t, by: last.by_name } : null, book, checks: checks.slice(-8).reverse() };
+    const sinceSales = last ? getSales(tid, last.t, now()) : { net: 0 };
+    const book = last ? r2(last.litres + recv(tid, last.t, now()) - sinceSales.net) : null;
+    return {
+      id: tk.id,
+      name: tk.name,
+      fuel: tk.fuel,
+      rate: fuelRateFor(st, tk.fuel, bizDate()),
+      capacity: tk.capacity || 0,
+      last: last ? { id: last.id, litres: last.litres, dip: last.dip, t: last.t, by: last.by_name } : null,
+      book,
+      checks: checks.slice(-60).reverse()
+    };
   });
 }
 app.get("/api/tanks", need(), (q, s) => {
@@ -841,13 +875,6 @@ app.post("/api/dips", need(), (q, s) => {
   if ([dobs, d15].some(Number.isNaN)) return s.status(400).json({ error: "Density should be a number such as 732.0 or 0.745." });
   if (Number.isNaN(tmp)) return s.status(400).json({ error: "Check the temperature." });
   const id = db.prepare("insert into dips(tank_id,litres,dip,dens_obs,temp,d15,note,user_id,t) values(?,?,?,?,?,?,?,?,?)").run(String(tank.id), r2(litres), dip, dobs, tmp, d15, String(b.note || "").slice(0, 200), q.user.id, now()).lastInsertRowid;
-  try {
-    const dIso = today();
-    const ex = db.prepare("select id from density_register where d=? and fuel=?").get(dIso, tank.fuel);
-    if (!ex && (dobs != null || d15 != null)) {
-      db.prepare("insert into density_register(d, fuel, tank_id, m_density, m_temp, m_d15, user_id, created) values(?,?,?,?,?,?,?,?)").run(dIso, tank.fuel, String(tank.id), dobs, tmp, d15, q.user.id, now());
-    }
-  } catch (e) {}
   s.json({ id, litres: r2(litres) });
 });
 // ---- Density checks (deliveries and dips) with flags
@@ -886,1082 +913,170 @@ app.delete("/api/dips/:id", need("owner", "manager"), (q, s) => {
   db.prepare("delete from dips where id=?").run(+q.params.id);
   s.json({ ok: true });
 });
+app.put("/api/dips/:id/note", need("owner", "manager"), (q, s) => {
+  const note = String((q.body && q.body.note) || "").trim().slice(0, 200);
+  db.prepare("update dips set note=? where id=?").run(note, +q.params.id);
+  s.json({ ok: true, note });
+});
 
-// ---- Density Register (Indian OMC standard register for Petrol, Diesel, Power Petrol)
-app.get("/api/density-register", need(), (q, s) => {
-  const m = q.query.month || today().slice(0, 7);
-  const fuel = q.query.fuel || "";
-  let query = "select r.*, u.name as recorder from density_register r left join users u on u.id=r.user_id where substr(r.d,1,7)=?";
-  const params = [m];
-  if (fuel) {
-    query += " and r.fuel=?";
-    params.push(fuel);
-  }
-  query += " order by r.d asc, r.id asc";
-  const rows = db.prepare(query).all(...params);
-  s.json(rows);
+// Statutory Daily Density Register (matches official Indian Oil / Petroleum Daily Density Register format)
+app.get("/api/density-register", need("owner", "manager"), (q, s) => {
+  const st = stateNow(), tanks = {}, tankList = st.tanks || [];
+  tankList.forEach((t) => (tanks[String(t.id)] = t));
+
+  const dbRows = db.prepare("select * from density_register order by d desc, id desc limit 400").all();
+  const keyMap = {};
+  dbRows.forEach((r) => {
+    const t = tanks[String(r.tank_id)];
+    r.tank_name = t ? t.name : "Tank";
+    r.fuel = t ? t.fuel : "";
+    keyMap[`${r.tank_id}_${r.d}`] = r;
+  });
+
+  // Synthesize from dips
+  db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id where di.dens_obs is not null or di.d15 is not null order by di.t desc limit 150").all().forEach((x) => {
+    const t = tanks[String(x.tank_id)];
+    if (!t) return;
+    const dStr = new Date(x.t * 1000).toLocaleDateString("en-CA", { timeZone: TZ });
+    const k = `${x.tank_id}_${dStr}`;
+    if (!keyMap[k]) {
+      const syn = {
+        id: -x.id,
+        synthetic: true,
+        tank_id: String(x.tank_id),
+        tank_name: t.name,
+        fuel: t.fuel,
+        d: dStr,
+        t: x.t,
+        m_obs: x.dens_obs != null ? (x.dens_obs < 2 ? r2(x.dens_obs * 1000) : x.dens_obs) : null,
+        m_temp: x.temp,
+        m_d15: x.d15 != null ? (x.d15 < 2 ? r2(x.d15 * 1000) : x.d15) : null,
+        comp1: null, comp2: null, comp3: null, comp4: null,
+        mix_dens: null, chalan_dens: null, dens_diff: null,
+        pre_dip: x.dip, pre_stock: x.litres,
+        post_dens: null, receipt_kl: null, chalan_no: "",
+        by_name: x.by_name
+      };
+      keyMap[k] = syn;
+      dbRows.push(syn);
+    }
+  });
+
+  // Synthesize from fuel deliveries
+  (st.deliv || []).forEach((dlv) => {
+    (dlv.lines || []).forEach((l) => {
+      const t = tanks[String(l.tank_id)];
+      if (!t) return;
+      const k = `${l.tank_id}_${dlv.d}`;
+      const dn = l.dens || {};
+      const inv = dn.inv != null ? (dn.inv < 2 ? r2(dn.inv * 1000) : dn.inv) : null;
+      const obs = dn.obs != null ? (dn.obs < 2 ? r2(dn.obs * 1000) : dn.obs) : null;
+      const d15 = dn.d15 != null ? (dn.d15 < 2 ? r2(dn.d15 * 1000) : dn.d15) : null;
+      const recKl = l.litres ? r2(l.litres / 1000) : null;
+
+      if (keyMap[k]) {
+        const row = keyMap[k];
+        if (row.chalan_dens == null) row.chalan_dens = inv;
+        if (row.mix_dens == null) row.mix_dens = obs || d15;
+        if (row.post_dens == null) row.post_dens = d15 || obs;
+        if (row.receipt_kl == null) row.receipt_kl = recKl;
+        if (!row.chalan_no) row.chalan_no = dlv.billno || "";
+        if (row.mix_dens != null && row.chalan_dens != null && row.dens_diff == null) {
+          row.dens_diff = r2(Math.abs(row.mix_dens - row.chalan_dens));
+        }
+      } else {
+        const syn = {
+          id: -(dlv.id || Date.now()),
+          synthetic: true,
+          tank_id: String(l.tank_id),
+          tank_name: t.name,
+          fuel: t.fuel,
+          d: dlv.d,
+          t: Math.floor((dlv.ts || Date.now()) / 1000),
+          m_obs: null, m_temp: dn.temp || null, m_d15: null,
+          comp1: obs || d15, comp2: null, comp3: null, comp4: null,
+          mix_dens: obs || d15,
+          chalan_dens: inv,
+          dens_diff: (obs || d15) != null && inv != null ? r2(Math.abs((obs || d15) - inv)) : null,
+          pre_dip: null, pre_stock: null,
+          post_dens: d15 || obs,
+          receipt_kl: recKl,
+          chalan_no: dlv.billno || "",
+          by_name: ""
+        };
+        keyMap[k] = syn;
+        dbRows.push(syn);
+      }
+    });
+  });
+
+  dbRows.sort((a, b) => (b.d > a.d ? 1 : b.d < a.d ? -1 : (b.id || 0) - (a.id || 0)));
+  s.json({ tanks: tankList, rows: dbRows });
 });
 
 app.post("/api/density-register", need("owner", "manager"), (q, s) => {
   const b = q.body || {};
-  if (!b.d || !/^\d{4}-\d{2}-\d{2}$/.test(b.d)) return s.status(400).json({ error: "Enter a valid date." });
-  if (!b.fuel) return s.status(400).json({ error: "Select a fuel product." });
-  
-  const numOrNull = (v) => (v === "" || v == null || Number.isNaN(+v) ? null : +v);
-  const comp1 = numOrNull(b.comp1);
-  const comp2 = numOrNull(b.comp2);
-  const comp3 = numOrNull(b.comp3);
-  const comp4 = numOrNull(b.comp4);
-  
-  let mix = numOrNull(b.mix_density);
-  if (mix === null) {
-    const comps = [comp1, comp2, comp3, comp4].filter((x) => x !== null);
-    if (comps.length > 0) {
-      mix = r2(comps.reduce((a, c) => a + c, 0) / comps.length);
-    }
-  }
-  
-  const chalan = numOrNull(b.challan_d15);
-  let diff = numOrNull(b.diff_density);
-  if (diff === null && mix !== null && chalan !== null) {
-    diff = r2(Math.abs(mix - chalan));
-  }
-  
-  const id = db.prepare(`
-    insert into density_register(
-      d, fuel, tank_id, m_density, m_temp, m_d15,
-      comp1, comp2, comp3, comp4, mix_density, challan_d15, diff_density,
-      before_dip, before_stock, after_density, receipt_kl, challan_no,
-      note, user_id, created
-    ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `).run(
-    b.d, b.fuel, b.tank_id ? String(b.tank_id) : null,
-    numOrNull(b.m_density), numOrNull(b.m_temp), numOrNull(b.m_d15),
-    comp1, comp2, comp3, comp4, mix, chalan, diff,
-    numOrNull(b.before_dip), numOrNull(b.before_stock), numOrNull(b.after_density),
-    numOrNull(b.receipt_kl), b.challan_no ? String(b.challan_no).trim() : null,
-    b.note ? String(b.note).trim() : null, q.user.id, now()
-  ).lastInsertRowid;
-  
-  s.json({ ok: true, id });
-});
+  const tid = String(b.tank_id || "").trim();
+  if (!tid) return s.status(400).json({ error: "Please select a tank." });
+  const d = String(b.d || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return s.status(400).json({ error: "Please enter a valid date (YYYY-MM-DD)." });
 
-app.put("/api/density-register/:id", need("owner", "manager"), (q, s) => {
-  const b = q.body || {};
-  const id = +q.params.id;
-  if (!db.prepare("select 1 from density_register where id=?").get(id)) {
-    return s.status(404).json({ error: "Entry not found." });
+  const num = (x) => (x === "" || x === undefined || x === null || Number.isNaN(+x) ? null : +x);
+  const normDens = (v) => {
+    if (v == null) return null;
+    return v < 2 ? r2(v * 1000) : r2(v);
+  };
+
+  const m_obs = normDens(num(b.m_obs));
+  const m_temp = num(b.m_temp);
+  let m_d15 = normDens(num(b.m_d15));
+
+  if (m_d15 == null && m_obs != null && m_temp != null) {
+    m_d15 = r2(m_obs + (m_temp - 15) * 0.89);
   }
-  if (!b.d || !/^\d{4}-\d{2}-\d{2}$/.test(b.d)) return s.status(400).json({ error: "Enter a valid date." });
-  if (!b.fuel) return s.status(400).json({ error: "Select a fuel product." });
-  
-  const numOrNull = (v) => (v === "" || v == null || Number.isNaN(+v) ? null : +v);
-  const comp1 = numOrNull(b.comp1);
-  const comp2 = numOrNull(b.comp2);
-  const comp3 = numOrNull(b.comp3);
-  const comp4 = numOrNull(b.comp4);
-  
-  let mix = numOrNull(b.mix_density);
-  if (mix === null) {
-    const comps = [comp1, comp2, comp3, comp4].filter((x) => x !== null);
-    if (comps.length > 0) mix = r2(comps.reduce((a, c) => a + c, 0) / comps.length);
+
+  const comp1 = normDens(num(b.comp1));
+  const comp2 = normDens(num(b.comp2));
+  const comp3 = normDens(num(b.comp3));
+  const comp4 = normDens(num(b.comp4));
+
+  const comps = [comp1, comp2, comp3, comp4].filter((x) => x != null);
+  let mix_dens = normDens(num(b.mix_dens));
+  if (mix_dens == null && comps.length > 0) {
+    mix_dens = r2(comps.reduce((a, c) => a + c, 0) / comps.length);
   }
-  
-  const chalan = numOrNull(b.challan_d15);
-  let diff = numOrNull(b.diff_density);
-  if (diff === null && mix !== null && chalan !== null) {
-    diff = r2(Math.abs(mix - chalan));
+
+  const chalan_dens = normDens(num(b.chalan_dens));
+  let dens_diff = num(b.dens_diff);
+  if (dens_diff == null && mix_dens != null && chalan_dens != null) {
+    dens_diff = r2(Math.abs(mix_dens - chalan_dens));
   }
-  
-  db.prepare(`
-    update density_register set
-      d=?, fuel=?, tank_id=?, m_density=?, m_temp=?, m_d15=?,
-      comp1=?, comp2=?, comp3=?, comp4=?, mix_density=?, challan_d15=?, diff_density=?,
-      before_dip=?, before_stock=?, after_density=?, receipt_kl=?, challan_no=?,
-      note=?
-    where id=?
-  `).run(
-    b.d, b.fuel, b.tank_id ? String(b.tank_id) : null,
-    numOrNull(b.m_density), numOrNull(b.m_temp), numOrNull(b.m_d15),
-    comp1, comp2, comp3, comp4, mix, chalan, diff,
-    numOrNull(b.before_dip), numOrNull(b.before_stock), numOrNull(b.after_density),
-    numOrNull(b.receipt_kl), b.challan_no ? String(b.challan_no).trim() : null,
-    b.note ? String(b.note).trim() : null, id
-  );
-  
-  s.json({ ok: true });
+
+  const pre_dip = num(b.pre_dip);
+  const pre_stock = num(b.pre_stock);
+  const post_dens = normDens(num(b.post_dens));
+  const receipt_kl = num(b.receipt_kl);
+  const chalan_no = String(b.chalan_no || "").trim().slice(0, 50);
+
+  const t = Math.floor(new Date(d + "T10:00:00").getTime() / 1000);
+  const stmt = db.prepare(`
+    insert into density_register(tank_id, d, t, m_obs, m_temp, m_d15, comp1, comp2, comp3, comp4, mix_dens, chalan_dens, dens_diff, pre_dip, pre_stock, post_dens, receipt_kl, chalan_no, user_id, by_name)
+    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const info = stmt.run(tid, d, t, m_obs, m_temp, m_d15, comp1, comp2, comp3, comp4, mix_dens, chalan_dens, dens_diff, pre_dip, pre_stock, post_dens, receipt_kl, chalan_no, q.user.id, q.user.name);
+
+  s.json({ ok: true, id: info.lastInsertRowid });
 });
 
 app.delete("/api/density-register/:id", need("owner", "manager"), (q, s) => {
-  db.prepare("delete from density_register where id=?").run(+q.params.id);
+  const id = +q.params.id;
+  if (id > 0) {
+    db.prepare("delete from density_register where id=?").run(id);
+  }
   s.json({ ok: true });
 });
 
-// ---- Daily Meter Register (Opening meter taken from night shift closing)
-function getActiveNozzles(st = stateNow()) {
-  let nozzles = (st.nozzles || []).filter((n) => n.active !== false);
-  if (nozzles.length === 0 && Array.isArray(st.tanks) && st.tanks.length > 0) {
-    nozzles = st.tanks.map((t, i) => ({
-      id: "noz_" + t.id,
-      name: "Pump " + (i + 1),
-      fuel: t.fuel,
-      tank_id: String(t.id),
-      active: true,
-      open: 1000.0,
-    }));
-  }
-  return nozzles;
-}
 
-app.get("/api/meter-register", need(), (q, s) => {
-  const m = q.query.month || today().slice(0, 7);
-  const st = stateNow();
-  const nozzles = getActiveNozzles(st);
-  
-  const entries = db.prepare(`
-    select r.*, u.name as recorder
-    from meter_register r
-    left join users u on u.id=r.user_id
-    where substr(r.d,1,7)=?
-    order by r.d asc, r.nozzle_id asc
-  `).all(m);
-  
-  // Also collect duty info for this month if any, to provide duty sync hints
-  const dutiesSummary = db.prepare(`
-    select du.d, dl.nozzle_id, min(dl.opening) min_open, max(dl.closing) max_close, sum(dl.testing) sum_test
-    from duty_lines dl
-    join duties du on du.id=dl.duty_id
-    where substr(du.d,1,7)=? and du.status in ('submitted','closed')
-    group by du.d, dl.nozzle_id
-  `).all(m);
-  
-  s.json({ month: m, nozzles, entries, dutiesSummary });
-});
-
-app.get("/api/meter-register/openings", need(), (q, s) => {
-  const d = q.query.d || today();
-  const st = stateNow();
-  const nozzles = getActiveNozzles(st);
-  
-  const openings = {};
-  for (const n of nozzles) {
-    const nid = String(n.id);
-    // 1. Look for previous closing in meter_register prior to d (closing of night shift / end of previous day)
-    const prev = db.prepare("select closing, d from meter_register where nozzle_id=? and d < ? and closing is not null order by d desc limit 1").get(nid, d);
-    if (prev && prev.closing != null) {
-      openings[nid] = { opening: prev.closing, source: "previous_closing", fromDate: prev.d };
-      continue;
-    }
-    // 2. Look for closing in duty_lines prior to d (night shift closing of yesterday)
-    const prevDuty = db.prepare("select dl.closing, du.d from duty_lines dl join duties du on du.id=dl.duty_id where dl.nozzle_id=? and du.d < ? and dl.closing is not null order by du.d desc, du.submitted desc, dl.id desc limit 1").get(nid, d);
-    if (prevDuty && prevDuty.closing != null) {
-      openings[nid] = { opening: prevDuty.closing, source: "duty_night_closing", fromDate: prevDuty.d };
-      continue;
-    }
-    // 3. Initial nozzle opening reading
-    openings[nid] = { opening: n.open ?? 0, source: "initial_setup" };
-  }
-  s.json({ d, openings });
-});
-
-app.post("/api/meter-register", need("owner", "manager"), (q, s) => {
-  const b = q.body || {};
-  if (!b.d || !/^\d{4}-\d{2}-\d{2}$/.test(b.d)) return s.status(400).json({ error: "Enter a valid date." });
-  const readings = Array.isArray(b.readings) ? b.readings : [];
-  if (readings.length === 0) return s.status(400).json({ error: "No meter readings provided." });
-  
-  const numOrNull = (v) => (v === "" || v == null || Number.isNaN(+v) ? null : +v);
-  
-  db.transaction(() => {
-    for (const r of readings) {
-      const nid = String(r.nozzle_id);
-      const op = numOrNull(r.opening);
-      const cl = numOrNull(r.closing);
-      const test = numOrNull(r.testing) || 0;
-      let sale = null;
-      if (cl != null && op != null) {
-        sale = r2(Math.max(0, cl - op - test));
-      }
-      db.prepare(`
-        insert into meter_register(d, nozzle_id, opening, closing, testing, sale, note, user_id, updated_at)
-        values(?,?,?,?,?,?,?,?,?)
-        on conflict(d, nozzle_id) do update set
-          opening=excluded.opening,
-          closing=excluded.closing,
-          testing=excluded.testing,
-          sale=excluded.sale,
-          note=excluded.note,
-          user_id=excluded.user_id,
-          updated_at=excluded.updated_at
-      `).run(b.d, nid, op, cl, test, sale, r.note ? String(r.note).slice(0, 200) : null, q.user.id, now());
-    }
-  })();
-  
-  s.json({ ok: true });
-});
-
-app.delete("/api/meter-register/:d", need("owner", "manager"), (q, s) => {
-  const d = q.params.d;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return s.status(400).json({ error: "Invalid date." });
-  db.prepare("delete from meter_register where d=?").run(d);
-  s.json({ ok: true });
-});
-
-app.post("/api/meter-register/sync-from-duties", need("owner", "manager"), (q, s) => {
-  const d = (q.body && q.body.d) || today();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return s.status(400).json({ error: "Invalid date." });
-  
-  // Find duty readings for date d
-  const lines = db.prepare(`
-    select dl.nozzle_id, min(dl.opening) as first_open, max(dl.closing) as last_close, sum(dl.testing) as tot_test
-    from duty_lines dl
-    join duties du on du.id=dl.duty_id
-    where du.d=? and du.status in ('submitted','closed') and dl.closing is not null
-    group by dl.nozzle_id
-  `).all(d);
-  
-  if (lines.length === 0) return s.status(404).json({ error: "No submitted or closed duties found on " + d });
-  
-  db.transaction(() => {
-    for (const l of lines) {
-      const nid = String(l.nozzle_id);
-      const op = l.first_open;
-      const cl = l.last_close;
-      const test = l.tot_test || 0;
-      const sale = r2(Math.max(0, cl - op - test));
-      db.prepare(`
-        insert into meter_register(d, nozzle_id, opening, closing, testing, sale, note, user_id, updated_at)
-        values(?,?,?,?,?,?,?,?,?)
-        on conflict(d, nozzle_id) do update set
-          opening=excluded.opening,
-          closing=excluded.closing,
-          testing=excluded.testing,
-          sale=excluded.sale,
-          note='Synced from duties',
-          user_id=excluded.user_id,
-          updated_at=excluded.updated_at
-      `).run(d, nid, op, cl, test, sale, q.user.id, now());
-    }
-  })();
-  
-  s.json({ ok: true, synced: lines.length });
-});
-
-// Seed exact May 2025 Google Sheet sample dataset
-app.post("/api/meter-register/seed-sample", need("owner", "manager"), (q, s) => {
-  const st = stateNow();
-  let nozzles = st.nozzles || [];
-  
-  // Define the standard pumps from the user's sheet if setup is empty or nozzles are missing
-  const samplePumps = [
-    { id: "p1_hsd", name: "Pump 1", fuel: "Diesel (HSD)", open: 536771.16 },
-    { id: "p2_ms", name: "Pump 2", fuel: "Petrol (MS)", open: 1651598.67 },
-    { id: "p3_ms", name: "Pump 3", fuel: "Petrol (MS)", open: 1250393.36 },
-    { id: "p4_hsd", name: "Pump 4", fuel: "Diesel (HSD)", open: 46772.17 },
-    { id: "p5_hsd", name: "Pump 5", fuel: "Diesel (HSD)", open: 10037.96 },
-    { id: "p6_hsd", name: "Pump 6", fuel: "Diesel (HSD)", open: 3861961.10 },
-    { id: "p7_power", name: "Pump 7", fuel: "Power petrol", open: 1566757.84 },
-  ];
-  
-  if (!nozzles || nozzles.length === 0) {
-    const tanks = st.tanks || [];
-    const tHSD = (tanks.find((t) => /diesel|hsd/i.test(t.fuel)) || {}).id || "";
-    const tMS = (tanks.find((t) => /petrol|ms/i.test(t.fuel) && !/power/i.test(t.fuel)) || {}).id || "";
-    const tPWR = (tanks.find((t) => /power/i.test(t.fuel)) || {}).id || "";
-    
-    nozzles = samplePumps.map((sp) => ({
-      id: sp.id,
-      name: sp.name,
-      fuel: sp.fuel,
-      tank_id: /power/i.test(sp.fuel) ? tPWR : /diesel|hsd/i.test(sp.fuel) ? tHSD : tMS,
-      active: true,
-      open: sp.open,
-    }));
-    
-    // Save to setup section
-    const curSetup = db.prepare("select json from sections where name='setup'").get();
-    const setupObj = curSetup ? JSON.parse(curSetup.json) : {};
-    setupObj.nozzles = nozzles;
-    if (!setupObj.rates || setupObj.rates.length === 0) {
-      setupObj.rates = [
-        { id: 1, fuel: "Petrol (MS)", rate: 104.25, from: "2025-01-01" },
-        { id: 2, fuel: "Diesel (HSD)", rate: 92.15, from: "2025-01-01" },
-        { id: 3, fuel: "Power petrol", rate: 109.80, from: "2025-01-01" },
-      ];
-    }
-    writeSection("setup", setupObj);
-  }
-  
-  // Exact daily data points for May 2025 from Google Sheet screenshot:
-  const p2_readings = [
-    1653043.67, 1654262.05, 1655660.12, 1656897.15, 1658510.84, 1659810.84, 1660649.69,
-    1662296.52, 1663365.72, 1663442.80, 1664571.88, 1665654.14, 1666771.43, 1667958.22,
-    1669333.45, 1670788.54, 1671839.73, 1672865.98, 1673791.09, 1674814.31, 1676051.61,
-    1677150.38, 1678403.95, 1679652.72, 1680767.58, 1682008.85, 1683238.00, 1684327.70,
-    1685726.44, 1687170.37, 1688196.35
-  ];
-  
-  const p4_readings = [
-    47957.17, 49032.19, 50783.30, 52088.94, 53570.38, 55286.11, 56225.79,
-    57720.41, 58708.45, 59783.35, 60719.509, 61821.26, 62871.43, 64584.50,
-    66004.05, 67912.21, 68956.70, 69919.17, 71289.08, 72866.57, 74311.12,
-    75031.55, 75868.22, 76704.73, 77590.52, 79009.07, 79789.09, 80879.92,
-    81839.39, 83177.17, 85057.84
-  ];
-
-  // Specific sheet sales totals
-  const ms_sales = [
-    1445, 1218, 1298, 1337, 1551, 1363, 839, 1647, 1069, 77, 1129, 1082, 1117, 1187,
-    1375, 1455, 1051, 1026, 925, 1023, 1237, 1099, 720, 837, 1249, 1241, 1229, 1090,
-    1399, 1444, 1026
-  ];
-  
-  const hsd_sales = [
-    1185, 1075, 1752, 1306, 1481, 1716, 940, 1495, 988, 1075, 936, 1102, 1050, 1713,
-    1420, 1908, 1044, 962, 1370, 1577, 1445, 720, 837, 837, 886, 1419, 780, 1091,
-    959, 1338, 1881
-  ];
-
-  db.transaction(() => {
-    let p2_prev = 1651598.67;
-    let p4_prev = 46772.17;
-    
-    for (let day = 1; day <= 31; day++) {
-      const dStr = (day < 10 ? "0" : "") + day;
-      const date = "2025-05-" + dStr;
-      
-      const p2_close = p2_readings[day - 1];
-      const p2_sale = ms_sales[day - 1];
-      const p2_open = p2_prev;
-      p2_prev = p2_close;
-      
-      const p4_close = p4_readings[day - 1];
-      const p4_sale = hsd_sales[day - 1];
-      const p4_open = p4_prev;
-      p4_prev = p4_close;
-      
-      const p5_close = day === 1 ? 10037.96 : 10038.73;
-      const p5_open = 10037.96;
-      
-      const dayReadings = [
-        { nid: "p1_hsd", op: 536771.16, cl: 536771.16, sale: 0 },
-        { nid: "p2_ms", op: p2_open, cl: p2_close, sale: p2_sale },
-        { nid: "p3_ms", op: 1250393.36, cl: 1250393.36, sale: 0 },
-        { nid: "p4_hsd", op: p4_open, cl: p4_close, sale: p4_sale },
-        { nid: "p5_hsd", op: p5_open, cl: p5_close, sale: day === 1 ? 0 : (day === 2 ? 0.77 : 0) },
-        { nid: "p6_hsd", op: 3861961.10, cl: 3861961.10, sale: 0 },
-        { nid: "p7_power", op: 1566757.84, cl: 1566757.84, sale: 0 },
-      ];
-      
-      for (const dr of dayReadings) {
-        db.prepare(`
-          insert into meter_register(d, nozzle_id, opening, closing, testing, sale, note, user_id, updated_at)
-          values(?,?,?,?,?,?,?,?,?)
-          on conflict(d, nozzle_id) do update set
-            opening=excluded.opening,
-            closing=excluded.closing,
-            testing=excluded.testing,
-            sale=excluded.sale,
-            updated_at=excluded.updated_at
-        `).run(date, dr.nid, dr.op, dr.cl, 0, dr.sale, "DailySale 2025 Google Sheet", q.user.id, now());
-      }
-    }
-  })();
-  
-  s.json({ ok: true, count: 31 });
-});
-
-// ---- Daily Stock Register (Form 13 / OMC Stock Register per product)
-function calcDipToLitres(chart, dip) {
-  if (dip == null || isNaN(dip)) return null;
-  const d = Number(dip);
-  if (!chart || !Array.isArray(chart) || chart.length === 0) return null;
-  if (d <= chart[0].cm) return chart[0].l;
-  if (d >= chart[chart.length - 1].cm) return chart[chart.length - 1].l;
-  for (let i = 0; i < chart.length - 1; i++) {
-    const c1 = chart[i].cm, c2 = chart[i + 1].cm;
-    const l1 = chart[i].l, l2 = chart[i + 1].l;
-    if (d >= c1 && d <= c2) {
-      if (c2 === c1) return l1;
-      const frac = (d - c1) / (c2 - c1);
-      return Math.round((l1 + frac * (l2 - l1)) * 10) / 10;
-    }
-  }
-  return null;
-}
-
-app.get("/api/stock-register", need(), (q, s) => {
-  const m = q.query.month || today().slice(0, 7);
-  const st = stateNow();
-  const tanks = st.tanks || [];
-  const fuels = [...new Set(tanks.map((t) => t.fuel))];
-  if (fuels.length === 0) fuels.push("Petrol (MS)", "Diesel (HSD)", "Power petrol");
-  const fuel = q.query.fuel || fuels[0];
-  
-  const tank = tanks.find((t) => t.fuel === fuel) || tanks[0] || null;
-  const tankIdStr = tank ? String(tank.id) : null;
-  
-  // 1. Existing registered records for this month & fuel
-  const entries = db.prepare(`
-    select * from daily_stock_register
-    where substr(d, 1, 7)=? and fuel=?
-    order by d asc
-  `).all(m, fuel);
-
-  // 2. Deliveries linked for this month & fuel from st.deliv
-  const linkedDeliveries = {};
-  (st.deliv || []).forEach((dl) => {
-    if (!dl.d || dl.d.slice(0, 7) !== m) return;
-    let totLitres = 0;
-    const matchingLines = [];
-    (dl.lines || []).forEach((line) => {
-      const lineTank = tanks.find((t) => String(t.id) === String(line.tank_id));
-      if (lineTank && lineTank.fuel === fuel) {
-        totLitres += Number(line.litres) || 0;
-        matchingLines.push(line);
-      }
-    });
-    if (totLitres > 0) {
-      linkedDeliveries[dl.d] = {
-        litres: totLitres,
-        billno: dl.billno || "",
-        sup: dl.sup,
-        lines: matchingLines,
-      };
-    }
-  });
-
-  // 3. Meter register sales for this month & fuel
-  const nozzles = getActiveNozzles(st).filter((n) => n.fuel === fuel);
-  const nozzleIds = nozzles.map((n) => String(n.id));
-  const linkedMeterSales = {};
-  if (nozzleIds.length > 0) {
-    const placeholders = nozzleIds.map(() => "?").join(",");
-    const rows = db.prepare(`
-      select d, sum(sale) as meter_sale, sum(testing) as meter_testing
-      from meter_register
-      where substr(d, 1, 7)=? and nozzle_id in (${placeholders})
-      group by d
-    `).all(m, ...nozzleIds);
-    rows.forEach((r) => {
-      linkedMeterSales[r.d] = {
-        sale: r.meter_sale != null ? r2(r.meter_sale) : null,
-        testing: r.meter_testing != null ? r2(r.meter_testing) : 0,
-      };
-    });
-  }
-
-  // 4. Closed duties sales fallback if meter register has no entries
-  const linkedDutySales = {};
-  if (nozzleIds.length > 0) {
-    const placeholders = nozzleIds.map(() => "?").join(",");
-    const dutyRows = db.prepare(`
-      select du.d,
-             sum(max(0, coalesce(dl.closing,0) - coalesce(dl.opening,0) - coalesce(dl.testing,0))) as duty_sale,
-             sum(coalesce(dl.testing, 0)) as duty_testing
-      from duty_lines dl
-      join duties du on du.id=dl.duty_id
-      where substr(du.d, 1, 7)=? and du.status in ('submitted','closed') and dl.nozzle_id in (${placeholders}) and dl.closing is not null
-      group by du.d
-    `).all(m, ...nozzleIds);
-    dutyRows.forEach((r) => {
-      linkedDutySales[r.d] = {
-        sale: r.duty_sale != null ? r2(r.duty_sale) : null,
-        testing: r.duty_testing != null ? r2(r.duty_testing) : 0,
-      };
-    });
-  }
-
-  // 5. Morning dips recorded in dips table
-  const linkedDips = {};
-  if (tankIdStr) {
-    const dipRows = db.prepare(`
-      select id, litres, dip, note, t, date(t, 'unixepoch', 'localtime') as day_str
-      from dips
-      where tank_id=? and substr(date(t, 'unixepoch', 'localtime'), 1, 7)=?
-      order by t asc
-    `).all(tankIdStr, m);
-    dipRows.forEach((dp) => {
-      if (!linkedDips[dp.day_str]) {
-        linkedDips[dp.day_str] = dp;
-      }
-    });
-  }
-
-  s.json({
-    month: m,
-    fuel,
-    fuels,
-    tank,
-    entries,
-    linked: {
-      deliveries: linkedDeliveries,
-      meterSales: linkedMeterSales,
-      dutySales: linkedDutySales,
-      dips: linkedDips,
-    },
-  });
-});
-
-app.get("/api/stock-register/hints", need(), (q, s) => {
-  const d = q.query.d || today();
-  const fuel = q.query.fuel || "Petrol (MS)";
-  const st = stateNow();
-  const tanks = st.tanks || [];
-  const tank = tanks.find((t) => t.fuel === fuel) || tanks[0] || null;
-  const tankIdStr = tank ? String(tank.id) : null;
-
-  // 1. Check previous day closing stock/dip
-  const prevDate = new Date(new Date(d + "T12:00:00").getTime() - 86400e3).toISOString().slice(0, 10);
-  const prevEntry = db.prepare("select closing_dip, closing_stock from daily_stock_register where d=? and fuel=?").get(prevDate, fuel);
-  
-  let suggestedOpeningDip = null;
-  let suggestedOpeningStock = null;
-  let openingSource = "none";
-
-  if (prevEntry && prevEntry.closing_stock != null) {
-    suggestedOpeningDip = prevEntry.closing_dip;
-    suggestedOpeningStock = prevEntry.closing_stock;
-    openingSource = "previous_closing";
-  } else if (tankIdStr) {
-    // Check morning dip in dips table
-    const dipRow = db.prepare("select dip, litres from dips where tank_id=? and date(t, 'unixepoch', 'localtime')=? order by t asc limit 1").get(tankIdStr, d);
-    if (dipRow) {
-      suggestedOpeningDip = dipRow.dip;
-      suggestedOpeningStock = dipRow.litres;
-      openingSource = "dips_table";
-    }
-  }
-
-  // 2. Check deliveries for date d
-  let suggestedReceipt = 0;
-  let suggestedChallan = "";
-  (st.deliv || []).forEach((dl) => {
-    if (dl.d === d) {
-      (dl.lines || []).forEach((line) => {
-        const lineTank = tanks.find((t) => String(t.id) === String(line.tank_id));
-        if (lineTank && lineTank.fuel === fuel) {
-          suggestedReceipt += Number(line.litres) || 0;
-          if (dl.billno) suggestedChallan = dl.billno;
-        }
-      });
-    }
-  });
-
-  // 3. Check meter sales for date d
-  const nozzles = getActiveNozzles(st).filter((n) => n.fuel === fuel);
-  const nozzleIds = nozzles.map((n) => String(n.id));
-  let suggestedMeterSales = null;
-  let suggestedTesting = 0;
-
-  if (nozzleIds.length > 0) {
-    const placeholders = nozzleIds.map(() => "?").join(",");
-    const mr = db.prepare(`select sum(sale) as sale, sum(testing) as testing from meter_register where d=? and nozzle_id in (${placeholders})`).get(d, ...nozzleIds);
-    if (mr && mr.sale != null) {
-      suggestedMeterSales = r2(mr.sale);
-      suggestedTesting = r2(mr.testing || 0);
-    } else {
-      // Fallback to duty_lines
-      const dr = db.prepare(`
-        select sum(max(0, coalesce(dl.closing,0) - coalesce(dl.opening,0) - coalesce(dl.testing,0))) as sale,
-               sum(coalesce(dl.testing, 0)) as testing
-        from duty_lines dl
-        join duties du on du.id=dl.duty_id
-        where du.d=? and du.status in ('submitted','closed') and dl.nozzle_id in (${placeholders}) and dl.closing is not null
-      `).get(d, ...nozzleIds);
-      if (dr && dr.sale != null) {
-        suggestedMeterSales = r2(dr.sale);
-        suggestedTesting = r2(dr.testing || 0);
-      }
-    }
-  }
-
-  s.json({
-    d,
-    fuel,
-    tank,
-    suggestedOpeningDip,
-    suggestedOpeningStock,
-    openingSource,
-    suggestedReceipt,
-    suggestedChallan,
-    suggestedMeterSales,
-    suggestedTesting,
-  });
-});
-
-app.post("/api/stock-register", need("owner", "manager"), (q, s) => {
-  const b = q.body || {};
-  if (!b.d || !/^\d{4}-\d{2}-\d{2}$/.test(b.d)) return s.status(400).json({ error: "Enter a valid date." });
-  if (!b.fuel) return s.status(400).json({ error: "Select a fuel product." });
-
-  const numOrNull = (v) => (v === "" || v == null || Number.isNaN(+v) ? null : +v);
-  const opDip = numOrNull(b.opening_dip);
-  const opStock = numOrNull(b.opening_stock);
-  const receipt = numOrNull(b.receipt) || 0;
-  const challan = b.challan_no ? String(b.challan_no).trim().slice(0, 100) : null;
-  const clDip = numOrNull(b.closing_dip);
-  const clStock = numOrNull(b.closing_stock);
-  const sm = numOrNull(b.sales_meter);
-  const test = numOrNull(b.testing) || 0;
-  
-  let salesDip = numOrNull(b.sales_dip);
-  let bookStock = numOrNull(b.book_stock);
-  let variation = numOrNull(b.variation);
-
-  const totStock = opStock != null ? r2(opStock + receipt) : null;
-
-  if (salesDip == null && totStock != null && clStock != null) {
-    salesDip = r2(totStock - clStock);
-  }
-  if (bookStock == null && totStock != null && sm != null) {
-    bookStock = r2(totStock - sm);
-  }
-  if (variation == null && sm != null && salesDip != null) {
-    variation = r2(sm - salesDip);
-  } else if (variation == null && clStock != null && bookStock != null) {
-    variation = r2(clStock - bookStock);
-  }
-
-  db.transaction(() => {
-    db.prepare(`
-      insert into daily_stock_register(
-        d, fuel, tank_id, opening_dip, opening_stock, receipt, challan_no,
-        closing_dip, closing_stock, sales_dip, sales_meter, testing,
-        book_stock, variation, note, user_id, updated_at
-      ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      on conflict(d, fuel) do update set
-        tank_id=excluded.tank_id,
-        opening_dip=excluded.opening_dip,
-        opening_stock=excluded.opening_stock,
-        receipt=excluded.receipt,
-        challan_no=excluded.challan_no,
-        closing_dip=excluded.closing_dip,
-        closing_stock=excluded.closing_stock,
-        sales_dip=excluded.sales_dip,
-        sales_meter=excluded.sales_meter,
-        testing=excluded.testing,
-        book_stock=excluded.book_stock,
-        variation=excluded.variation,
-        note=excluded.note,
-        user_id=excluded.user_id,
-        updated_at=excluded.updated_at
-    `).run(
-      b.d, b.fuel, b.tank_id ? String(b.tank_id) : null,
-      opDip, opStock, receipt, challan,
-      clDip, clStock, salesDip, sm, test,
-      bookStock, variation, b.note ? String(b.note).trim().slice(0, 300) : null,
-      q.user.id, now()
-    );
-
-    // If closing stock was set, check if next day exists and update its opening stock if missing
-    if (clStock != null) {
-      const nextD = new Date(new Date(b.d + "T12:00:00").getTime() + 86400e3).toISOString().slice(0, 10);
-      const nextRow = db.prepare("select id, opening_stock from daily_stock_register where d=? and fuel=?").get(nextD, b.fuel);
-      if (nextRow && nextRow.opening_stock == null) {
-        db.prepare("update daily_stock_register set opening_dip=?, opening_stock=?, updated_at=? where id=?")
-          .run(clDip, clStock, now(), nextRow.id);
-      }
-    }
-
-    // If opening stock was set, check if previous day exists and update its closing stock if missing
-    if (opStock != null) {
-      const prevD = new Date(new Date(b.d + "T12:00:00").getTime() - 86400e3).toISOString().slice(0, 10);
-      const prevRow = db.prepare("select * from daily_stock_register where d=? and fuel=?").get(prevD, b.fuel);
-      if (prevRow && prevRow.closing_stock == null) {
-        let pSalesDip = prevRow.sales_dip;
-        let pVar = prevRow.variation;
-        const pTot = prevRow.opening_stock != null ? prevRow.opening_stock + (prevRow.receipt || 0) : null;
-        if (pTot != null) {
-          pSalesDip = r2(pTot - opStock);
-          if (prevRow.sales_meter != null) {
-            pVar = r2(prevRow.sales_meter - pSalesDip);
-          }
-        }
-        db.prepare("update daily_stock_register set closing_dip=?, closing_stock=?, sales_dip=?, variation=?, updated_at=? where id=?")
-          .run(opDip, opStock, pSalesDip, pVar, now(), prevRow.id);
-      }
-    }
-  })();
-
-  s.json({ ok: true });
-});
-
-// Quick morning dip route - links opening stock of today and closing stock of yesterday
-app.post("/api/stock-register/quick-morning-dip", need("owner", "manager", "worker"), (q, s) => {
-  const b = q.body || {};
-  const d = b.d || today();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return s.status(400).json({ error: "Enter a valid date." });
-  const fuel = b.fuel || "Petrol (MS)";
-
-  const st = stateNow();
-  const tanks = st.tanks || [];
-  const tank = tanks.find((t) => t.fuel === fuel) || tanks[0] || null;
-  const tankId = tank ? String(tank.id) : null;
-
-  let dip = b.dip != null && b.dip !== "" ? +b.dip : null;
-  let litres = b.litres != null && b.litres !== "" ? +b.litres : null;
-
-  if (litres == null && dip != null && tank && tank.chart && tank.chart.length > 0) {
-    litres = calcDipToLitres(tank.chart, dip);
-  }
-  if (litres == null && dip == null) {
-    return s.status(400).json({ error: "Enter the dip reading or litres." });
-  }
-
-  db.transaction(() => {
-    // 1. Insert/update today's row in daily_stock_register
-    const existingToday = db.prepare("select * from daily_stock_register where d=? and fuel=?").get(d, fuel);
-    if (existingToday) {
-      db.prepare(`
-        update daily_stock_register set
-          opening_dip=?, opening_stock=?, updated_at=?
-        where id=?
-      `).run(dip, litres, now(), existingToday.id);
-    } else {
-      db.prepare(`
-        insert into daily_stock_register(d, fuel, tank_id, opening_dip, opening_stock, user_id, updated_at)
-        values(?,?,?,?,?,?,?)
-      `).run(d, fuel, tankId, dip, litres, q.user.id, now());
-    }
-
-    // 2. Also update yesterday's closing dip & closing stock
-    const prevDate = new Date(new Date(d + "T12:00:00").getTime() - 86400e3).toISOString().slice(0, 10);
-    const prevRow = db.prepare("select * from daily_stock_register where d=? and fuel=?").get(prevDate, fuel);
-    if (prevRow) {
-      let pSalesDip = prevRow.sales_dip;
-      let pVar = prevRow.variation;
-      const pTot = prevRow.opening_stock != null ? prevRow.opening_stock + (prevRow.receipt || 0) : null;
-      if (pTot != null && litres != null) {
-        pSalesDip = r2(pTot - litres);
-        if (prevRow.sales_meter != null) {
-          pVar = r2(prevRow.sales_meter - pSalesDip);
-        }
-      }
-      db.prepare(`
-        update daily_stock_register set
-          closing_dip=?, closing_stock=?, sales_dip=?, variation=?, updated_at=?
-        where id=?
-      `).run(dip, litres, pSalesDip, pVar, now(), prevRow.id);
-    }
-
-    // 3. Log to standard dips table as well
-    if (tankId && litres != null) {
-      db.prepare(`
-        insert into dips(tank_id, litres, dip, note, user_id, t)
-        values(?,?,?,?,?,?)
-      `).run(tankId, litres, dip, b.note ? String(b.note).slice(0, 200) : "Morning dip reading", q.user.id, now());
-    }
-  })();
-
-  s.json({ ok: true, d, fuel, dip, litres });
-});
-
-// Sync app data into stock register: inward deliveries and pump meter sales
-app.post("/api/stock-register/sync", need("owner", "manager"), (q, s) => {
-  const m = (q.body && q.body.month) || today().slice(0, 7);
-  const fuel = (q.body && q.body.fuel) || "Petrol (MS)";
-  const st = stateNow();
-  const tanks = st.tanks || [];
-  const tank = tanks.find((t) => t.fuel === fuel) || tanks[0] || null;
-  const tankId = tank ? String(tank.id) : null;
-
-  const ym = m.split("-"), yr = parseInt(ym[0]), mo = parseInt(ym[1]);
-  const daysInMonth = new Date(yr, mo, 0).getDate();
-
-  // Find deliveries for this month & fuel
-  const delivMap = {};
-  (st.deliv || []).forEach((dl) => {
-    if (!dl.d || dl.d.slice(0, 7) !== m) return;
-    let totLitres = 0;
-    (dl.lines || []).forEach((line) => {
-      const lineTank = tanks.find((t) => String(t.id) === String(line.tank_id));
-      if (lineTank && lineTank.fuel === fuel) {
-        totLitres += Number(line.litres) || 0;
-      }
-    });
-    if (totLitres > 0) {
-      delivMap[dl.d] = { litres: totLitres, billno: dl.billno || "" };
-    }
-  });
-
-  // Find meter sales for this month & fuel
-  const nozzles = getActiveNozzles(st).filter((n) => n.fuel === fuel);
-  const nozzleIds = nozzles.map((n) => String(n.id));
-  const meterMap = {};
-
-  if (nozzleIds.length > 0) {
-    const placeholders = nozzleIds.map(() => "?").join(",");
-    const rows = db.prepare(`
-      select d, sum(sale) as meter_sale, sum(testing) as meter_testing
-      from meter_register
-      where substr(d, 1, 7)=? and nozzle_id in (${placeholders})
-      group by d
-    `).all(m, ...nozzleIds);
-    rows.forEach((r) => {
-      meterMap[r.d] = { sale: r.meter_sale != null ? r2(r.meter_sale) : null, testing: r.meter_testing || 0 };
-    });
-
-    // Fallback duty lines for days missing in meter_register
-    const dutyRows = db.prepare(`
-      select du.d,
-             sum(max(0, coalesce(dl.closing,0) - coalesce(dl.opening,0) - coalesce(dl.testing,0))) as duty_sale,
-             sum(coalesce(dl.testing, 0)) as duty_testing
-      from duty_lines dl
-      join duties du on du.id=dl.duty_id
-      where substr(du.d, 1, 7)=? and du.status in ('submitted','closed') and dl.nozzle_id in (${placeholders}) and dl.closing is not null
-      group by du.d
-    `).all(m, ...nozzleIds);
-    dutyRows.forEach((r) => {
-      if (!meterMap[r.d] || meterMap[r.d].sale == null) {
-        meterMap[r.d] = { sale: r.duty_sale != null ? r2(r.duty_sale) : null, testing: r.duty_testing || 0 };
-      }
-    });
-  }
-
-  let syncedCount = 0;
-  db.transaction(() => {
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dStr = (day < 10 ? "0" : "") + day;
-      const date = m + "-" + dStr;
-      const dv = delivMap[date];
-      const ms = meterMap[date];
-
-      if (!dv && !ms) continue;
-
-      const existing = db.prepare("select * from daily_stock_register where d=? and fuel=?").get(date, fuel);
-      const receipt = dv ? dv.litres : (existing ? existing.receipt : 0);
-      const challan = dv ? dv.billno : (existing ? existing.challan_no : null);
-      const salesMeter = ms && ms.sale != null ? ms.sale : (existing ? existing.sales_meter : null);
-      const testing = ms && ms.testing != null ? ms.testing : (existing ? existing.testing : 0);
-
-      const opStock = existing ? existing.opening_stock : null;
-      const clStock = existing ? existing.closing_stock : null;
-      const totStock = opStock != null ? r2(opStock + receipt) : null;
-      let salesDip = existing ? existing.sales_dip : null;
-      let bookStock = existing ? existing.book_stock : null;
-      let variation = existing ? existing.variation : null;
-
-      if (totStock != null && clStock != null) {
-        salesDip = r2(totStock - clStock);
-      }
-      if (totStock != null && salesMeter != null) {
-        bookStock = r2(totStock - salesMeter);
-      }
-      if (salesMeter != null && salesDip != null) {
-        variation = r2(salesMeter - salesDip);
-      }
-
-      if (existing) {
-        db.prepare(`
-          update daily_stock_register set
-            receipt=?, challan_no=?, sales_meter=?, testing=?,
-            sales_dip=?, book_stock=?, variation=?, updated_at=?
-          where id=?
-        `).run(receipt, challan, salesMeter, testing, salesDip, bookStock, variation, now(), existing.id);
-      } else {
-        db.prepare(`
-          insert into daily_stock_register(d, fuel, tank_id, receipt, challan_no, sales_meter, testing, sales_dip, book_stock, variation, user_id, updated_at)
-          values(?,?,?,?,?,?,?,?,?,?,?,?)
-        `).run(date, fuel, tankId, receipt, challan, salesMeter, testing, salesDip, bookStock, variation, q.user.id, now());
-      }
-      syncedCount++;
-    }
-  })();
-
-  s.json({ ok: true, synced: syncedCount });
-});
-
-// Seed sample dataset matching user's MS 0126 (January 2026 Motor Spirit / Petrol pump stock register)
-app.post("/api/stock-register/seed-sample", need("owner", "manager"), (q, s) => {
-  const st = stateNow();
-  const tanks = st.tanks || [];
-  const tMS = (tanks.find((t) => /petrol|ms/i.test(t.fuel) && !/power/i.test(t.fuel)) || {}).id || "";
-  const tHSD = (tanks.find((t) => /diesel|hsd/i.test(t.fuel)) || {}).id || "";
-  const tPWR = (tanks.find((t) => /power/i.test(t.fuel)) || {}).id || "";
-
-  // 31 days data for MS Petrol (January 2026)
-  const msSample = [
-    { d: "2026-01-01", op_dip: 142.0, op_stock: 8420, rec: 0, ch: null, cl_dip: 121.5, cl_stock: 6975, m_sale: 1440, test: 5, var: -5 },
-    { d: "2026-01-02", op_dip: 121.5, op_stock: 6975, rec: 0, ch: null, cl_dip: 104.2, cl_stock: 5750, m_sale: 1218, test: 5, var: -7 },
-    { d: "2026-01-03", op_dip: 104.2, op_stock: 5750, rec: 5000, ch: "CH-9041", cl_dip: 163.8, cl_stock: 9455, m_sale: 1298, test: 5, var: 3 },
-    { d: "2026-01-04", op_dip: 163.8, op_stock: 9455, rec: 0, ch: null, cl_dip: 145.6, cl_stock: 8120, m_sale: 1337, test: 5, var: 2 },
-    { d: "2026-01-05", op_dip: 145.6, op_stock: 8120, rec: 0, ch: null, cl_dip: 124.8, cl_stock: 6565, m_sale: 1551, test: 5, var: -4 },
-    { d: "2026-01-06", op_dip: 124.8, op_stock: 6565, rec: 0, ch: null, cl_dip: 106.5, cl_stock: 5200, m_sale: 1363, test: 5, var: -2 },
-    { d: "2026-01-07", op_dip: 106.5, op_stock: 5200, rec: 0, ch: null, cl_dip: 95.2, cl_stock: 4360, m_sale: 839, test: 5, var: -1 },
-    { d: "2026-01-08", op_dip: 95.2, op_stock: 4360, rec: 5000, ch: "CH-9188", cl_dip: 154.2, cl_stock: 7710, m_sale: 1647, test: 5, var: -3 },
-    { d: "2026-01-09", op_dip: 154.2, op_stock: 7710, rec: 0, ch: null, cl_dip: 139.8, cl_stock: 6640, m_sale: 1069, test: 5, var: -1 },
-    { d: "2026-01-10", op_dip: 139.8, op_stock: 6640, rec: 0, ch: null, cl_dip: 124.5, cl_stock: 5490, m_sale: 1145, test: 5, var: -5 },
-    { d: "2026-01-11", op_dip: 124.5, op_stock: 5490, rec: 0, ch: null, cl_dip: 109.4, cl_stock: 4360, m_sale: 1129, test: 5, var: -1 },
-    { d: "2026-01-12", op_dip: 109.4, op_stock: 4360, rec: 0, ch: null, cl_dip: 94.8, cl_stock: 3275, m_sale: 1082, test: 5, var: -3 },
-    { d: "2026-01-13", op_dip: 94.8, op_stock: 3275, rec: 6000, ch: "CH-9345", cl_dip: 168.2, cl_stock: 8155, m_sale: 1117, test: 5, var: -3 },
-    { d: "2026-01-14", op_dip: 168.2, op_stock: 8155, rec: 0, ch: null, cl_dip: 152.4, cl_stock: 6965, m_sale: 1187, test: 5, var: -3 },
-    { d: "2026-01-15", op_dip: 152.4, op_stock: 6965, rec: 0, ch: null, cl_dip: 134.1, cl_stock: 5588, m_sale: 1375, test: 5, var: -2 },
-    { d: "2026-01-16", op_dip: 134.1, op_stock: 5588, rec: 0, ch: null, cl_dip: 114.6, cl_stock: 4130, m_sale: 1455, test: 5, var: -3 },
-    { d: "2026-01-17", op_dip: 114.6, op_stock: 4130, rec: 0, ch: null, cl_dip: 100.8, cl_stock: 3075, m_sale: 1051, test: 5, var: -4 },
-    { d: "2026-01-18", op_dip: 100.8, op_stock: 3075, rec: 5000, ch: "CH-9512", cl_dip: 158.4, cl_stock: 7048, m_sale: 1026, test: 5, var: -1 },
-    { d: "2026-01-19", op_dip: 158.4, op_stock: 7048, rec: 0, ch: null, cl_dip: 145.8, cl_stock: 6125, m_sale: 925, test: 5, var: 2 },
-    { d: "2026-01-20", op_dip: 145.8, op_stock: 6125, rec: 0, ch: null, cl_dip: 132.1, cl_stock: 5100, m_sale: 1023, test: 5, var: -2 },
-    { d: "2026-01-21", op_dip: 132.1, op_stock: 5100, rec: 0, ch: null, cl_dip: 115.5, cl_stock: 3860, m_sale: 1237, test: 5, var: -3 },
-    { d: "2026-01-22", op_dip: 115.5, op_stock: 3860, rec: 0, ch: null, cl_dip: 101.0, cl_stock: 2760, m_sale: 1099, test: 5, var: -1 },
-    { d: "2026-01-23", op_dip: 101.0, op_stock: 2760, rec: 5000, ch: "CH-9670", cl_dip: 156.2, cl_stock: 6580, m_sale: 1178, test: 5, var: -2 },
-    { d: "2026-01-24", op_dip: 156.2, op_stock: 6580, rec: 0, ch: null, cl_dip: 140.0, cl_stock: 5360, m_sale: 1218, test: 5, var: -2 },
-    { d: "2026-01-25", op_dip: 140.0, op_stock: 5360, rec: 0, ch: null, cl_dip: 123.5, cl_stock: 4108, m_sale: 1249, test: 5, var: -3 },
-    { d: "2026-01-26", op_dip: 123.5, op_stock: 4108, rec: 0, ch: null, cl_dip: 107.0, cl_stock: 2865, m_sale: 1241, test: 5, var: -2 },
-    { d: "2026-01-27", op_dip: 107.0, op_stock: 2865, rec: 5000, ch: "CH-9799", cl_dip: 157.0, cl_stock: 6634, m_sale: 1229, test: 5, var: -2 },
-    { d: "2026-01-28", op_dip: 157.0, op_stock: 6634, rec: 0, ch: null, cl_dip: 142.2, cl_stock: 5542, m_sale: 1090, test: 5, var: -2 },
-    { d: "2026-01-29", op_dip: 142.2, op_stock: 5542, rec: 0, ch: null, cl_dip: 123.6, cl_stock: 4140, m_sale: 1399, test: 5, var: -3 },
-    { d: "2026-01-30", op_dip: 123.6, op_stock: 4140, rec: 0, ch: null, cl_dip: 104.5, cl_stock: 2692, m_sale: 1444, test: 5, var: -4 },
-    { d: "2026-01-31", op_dip: 104.5, op_stock: 2692, rec: 5000, ch: "CH-9920", cl_dip: 158.0, cl_stock: 6664, m_sale: 1026, test: 5, var: -2 }
-  ];
-
-  db.transaction(() => {
-    // 1. Seed MS Petrol
-    for (const r of msSample) {
-      const totStock = r.op_stock + r.rec;
-      const salesDip = totStock - r.cl_stock;
-      const bookStock = totStock - r.m_sale;
-      const variation = r.m_sale - salesDip;
-      db.prepare(`
-        insert into daily_stock_register(
-          d, fuel, tank_id, opening_dip, opening_stock, receipt, challan_no,
-          closing_dip, closing_stock, sales_dip, sales_meter, testing,
-          book_stock, variation, note, user_id, updated_at
-        ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        on conflict(d, fuel) do update set
-          tank_id=excluded.tank_id,
-          opening_dip=excluded.opening_dip,
-          opening_stock=excluded.opening_stock,
-          receipt=excluded.receipt,
-          challan_no=excluded.challan_no,
-          closing_dip=excluded.closing_dip,
-          closing_stock=excluded.closing_stock,
-          sales_dip=excluded.sales_dip,
-          sales_meter=excluded.sales_meter,
-          testing=excluded.testing,
-          book_stock=excluded.book_stock,
-          variation=excluded.variation,
-          note=excluded.note,
-          updated_at=excluded.updated_at
-      `).run(
-        r.d, "Petrol (MS)", tMS ? String(tMS) : null,
-        r.op_dip, r.op_stock, r.rec, r.ch,
-        r.cl_dip, r.cl_stock, salesDip, r.m_sale, r.test,
-        bookStock, variation, r.rec > 0 ? "TT Decanted " + r.ch : null,
-        q.user.id, now()
-      );
-    }
-
-    // 2. Also seed HSD Diesel with realistic sample
-    let hsdStock = 12650;
-    const hsdSales = [1185, 1075, 1752, 1306, 1481, 1716, 940, 1495, 988, 1075, 936, 1102, 1050, 1713, 1420, 1908, 1044, 962, 1370, 1577, 1445, 1120, 1180, 1210, 1280, 1419, 1180, 1091, 1250, 1338, 1450];
-    for (let day = 1; day <= 31; day++) {
-      const dStr = (day < 10 ? "0" : "") + day;
-      const date = "2026-01-" + dStr;
-      const rec = (day === 5 || day === 12 || day === 20 || day === 27) ? 8000 : 0;
-      const ch = rec > 0 ? "CH-HSD-" + (8000 + day) : null;
-      const mSale = hsdSales[day - 1];
-      const opStock = hsdStock;
-      const totStock = opStock + rec;
-      const dailyVar = day % 4 === 0 ? -1 : (day % 3 === 0 ? -3 : -2);
-      const salesDip = mSale - dailyVar;
-      const clStock = totStock - salesDip;
-      const bookStock = totStock - mSale;
-      const opDip = Math.round((opStock / 22000 * 200) * 10) / 10;
-      const clDip = Math.round((clStock / 22000 * 200) * 10) / 10;
-      hsdStock = clStock;
-
-      db.prepare(`
-        insert into daily_stock_register(
-          d, fuel, tank_id, opening_dip, opening_stock, receipt, challan_no,
-          closing_dip, closing_stock, sales_dip, sales_meter, testing,
-          book_stock, variation, note, user_id, updated_at
-        ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        on conflict(d, fuel) do update set
-          tank_id=excluded.tank_id,
-          opening_dip=excluded.opening_dip,
-          opening_stock=excluded.opening_stock,
-          receipt=excluded.receipt,
-          challan_no=excluded.challan_no,
-          closing_dip=excluded.closing_dip,
-          closing_stock=excluded.closing_stock,
-          sales_dip=excluded.sales_dip,
-          sales_meter=excluded.sales_meter,
-          testing=excluded.testing,
-          book_stock=excluded.book_stock,
-          variation=excluded.variation,
-          note=excluded.note,
-          updated_at=excluded.updated_at
-      `).run(
-        date, "Diesel (HSD)", tHSD ? String(tHSD) : null,
-        opDip, opStock, rec, ch,
-        clDip, clStock, salesDip, mSale, 5,
-        bookStock, dailyVar, rec > 0 ? "TT Decanted " + ch : null,
-        q.user.id, now()
-      );
-    }
-
-    // 3. Also seed Power Petrol
-    let pwrStock = 4100;
-    for (let day = 1; day <= 31; day++) {
-      const dStr = (day < 10 ? "0" : "") + day;
-      const date = "2026-01-" + dStr;
-      const rec = day === 15 ? 3000 : 0;
-      const ch = rec > 0 ? "CH-PWR-101" : null;
-      const mSale = 180 + (day % 7) * 20;
-      const opStock = pwrStock;
-      const totStock = opStock + rec;
-      const dailyVar = day % 5 === 0 ? 0 : -1;
-      const salesDip = mSale - dailyVar;
-      const clStock = totStock - salesDip;
-      const bookStock = totStock - mSale;
-      const opDip = Math.round((opStock / 9000 * 160) * 10) / 10;
-      const clDip = Math.round((clStock / 9000 * 160) * 10) / 10;
-      pwrStock = clStock;
-
-      db.prepare(`
-        insert into daily_stock_register(
-          d, fuel, tank_id, opening_dip, opening_stock, receipt, challan_no,
-          closing_dip, closing_stock, sales_dip, sales_meter, testing,
-          book_stock, variation, note, user_id, updated_at
-        ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        on conflict(d, fuel) do update set
-          tank_id=excluded.tank_id,
-          opening_dip=excluded.opening_dip,
-          opening_stock=excluded.opening_stock,
-          receipt=excluded.receipt,
-          challan_no=excluded.challan_no,
-          closing_dip=excluded.closing_dip,
-          closing_stock=excluded.closing_stock,
-          sales_dip=excluded.sales_dip,
-          sales_meter=excluded.sales_meter,
-          testing=excluded.testing,
-          book_stock=excluded.book_stock,
-          variation=excluded.variation,
-          note=excluded.note,
-          updated_at=excluded.updated_at
-      `).run(
-        date, "Power petrol", tPWR ? String(tPWR) : null,
-        opDip, opStock, rec, ch,
-        clDip, clStock, salesDip, mSale, 5,
-        bookStock, dailyVar, rec > 0 ? "TT Decanted " + ch : null,
-        q.user.id, now()
-      );
-    }
-  })();
-
-  s.json({ ok: true, count: 93, month: "2026-01" });
-});
-
-app.delete("/api/stock-register/:id", need("owner", "manager"), (q, s) => {
-  db.prepare("delete from daily_stock_register where id=?").run(+q.params.id);
-  s.json({ ok: true });
-});
-
-app.delete("/api/stock-register/date/:d/:fuel", need("owner", "manager"), (q, s) => {
-  db.prepare("delete from daily_stock_register where d=? and fuel=?").run(q.params.d, q.params.fuel);
-  s.json({ ok: true });
-});
 
 // ---- Worker pay (owner manages; each worker can see their own)
 
@@ -2115,7 +1230,7 @@ app.get("/api/backups/:name", need("owner"), (q, s) => {
   s.download(path.join(BACKUP_DIR, q.params.name));
 });
 // Restore copies every table from the chosen backup over the live data. A safety copy is taken first.
-const RESTORE_TABLES = ["users", "sections", "state", "audit", "credit_sales", "duties", "duty_lines", "duty_items", "duty_expenses", "days", "dips", "pay_rates", "pay_items", "density_register", "meter_register", "daily_stock_register"];
+const RESTORE_TABLES = ["users", "sections", "state", "audit", "credit_sales", "duties", "duty_lines", "duty_items", "duty_expenses", "days", "dips", "pay_rates", "pay_items"];
 app.post("/api/backups/restore", need("owner"), async (q, s) => {
   const name = q.body && q.body.name;
   if (!BK_NAME.test(String(name)) || !fs.existsSync(path.join(BACKUP_DIR, name))) return s.status(404).json({ error: "Backup not found." });
