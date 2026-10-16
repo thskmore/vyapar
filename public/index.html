@@ -9,14 +9,679 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#eef1ef;--card:#fff;--ink:#16262b;--mute:#5d6e72;--line:#d5dcda;--due:#b8321f;--ok:#0b7a5f;--warn:#b86e00;--btn:#16262b;--btnt:#fff;
-box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111a1d;--card:#1a272b;--ink:#e8efed;--mute:#97a8ab;--line:#2c3c41;--due:#ff7b66;--ok:#4fd1a5;--warn:#f0b050;--btn:#e8efed;--btnt:#111a1d}}
-:root[data-theme="dark"]{--bg:#111a1d;--card:#1a272b;--ink:#e8efed;--mute:#97a8ab;--line:#2c3c41;--due:#ff7b66;--ok:#4fd1a5;--warn:#f0b050;--btn:#e8efed;--btnt:#111a1d}
-html{scroll-padding-top:env(safe-area-inset-top,0px)}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.45 "Hanken Grotesk",system-ui,sans-serif}
-.wrap{max-width:560px;margin:0 auto;padding:16px}
+/* ========================================================
+   VYAPAR APP 3 RESPONSIVE THEMES: Standard, Modern, Trending
+   ======================================================== */
+
+/* Default / Base Variables */
+:root {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  --font-main: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+  --transition-fast: 0.15s ease;
+}
+
+/* 1. VYAPAR STANDARD (Classic Ledger / Crimson Red & Slate) */
+:root[data-vyapar-theme="standard"] {
+  --bg: #f3f4f6;
+  --card: #ffffff;
+  --ink: #111827;
+  --mute: #4b5563;
+  --line: #d1d5db;
+  --due: #b91c1c;
+  --ok: #15803d;
+  --warn: #b45309;
+  --btn: #b91c1c;
+  --btnt: #ffffff;
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --radius: 6px;
+  --theme-accent: #b91c1c;
+  --theme-accent-soft: rgba(185, 28, 28, 0.08);
+}
+@media(prefers-color-scheme:dark) {
+  :root[data-vyapar-theme="standard"]:not([data-theme="light"]) {
+    --bg: #111827;
+    --card: #1f2937;
+    --ink: #f9fafb;
+    --mute: #9ca3af;
+    --line: #374151;
+    --due: #f87171;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --btn: #dc2626;
+    --btnt: #ffffff;
+    --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --theme-accent: #dc2626;
+    --theme-accent-soft: rgba(220, 38, 38, 0.15);
+  }
+}
+:root[data-vyapar-theme="standard"][data-theme="dark"] {
+  --bg: #111827;
+  --card: #1f2937;
+  --ink: #f9fafb;
+  --mute: #9ca3af;
+  --line: #374151;
+  --due: #f87171;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --btn: #dc2626;
+  --btnt: #ffffff;
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --theme-accent: #dc2626;
+  --theme-accent-soft: rgba(220, 38, 38, 0.15);
+}
+
+/* 2. VYAPAR MODERN (Sleek SaaS / Sapphire Indigo & Cool Slate) */
+:root[data-vyapar-theme="modern"],
+:root:not([data-vyapar-theme]) {
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --ink: #0f172a;
+  --mute: #64748b;
+  --line: #e2e8f0;
+  --due: #ef4444;
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --btn: #2563eb;
+  --btnt: #ffffff;
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --radius: 10px;
+  --theme-accent: #2563eb;
+  --theme-accent-soft: rgba(37, 99, 235, 0.08);
+}
+@media(prefers-color-scheme:dark) {
+  :root[data-vyapar-theme="modern"]:not([data-theme="light"]),
+  :root:not([data-vyapar-theme]):not([data-theme="light"]) {
+    --bg: #0b0f17;
+    --card: #131b2a;
+    --ink: #f1f5f9;
+    --mute: #94a3b8;
+    --line: #1e293b;
+    --due: #f87171;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --btn: #3b82f6;
+    --btnt: #ffffff;
+    --card-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    --theme-accent: #3b82f6;
+    --theme-accent-soft: rgba(59, 130, 246, 0.15);
+  }
+}
+:root[data-vyapar-theme="modern"][data-theme="dark"],
+:root:not([data-vyapar-theme])[data-theme="dark"] {
+  --bg: #0b0f17;
+  --card: #131b2a;
+  --ink: #f1f5f9;
+  --mute: #94a3b8;
+  --line: #1e293b;
+  --due: #f87171;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --btn: #3b82f6;
+  --btnt: #ffffff;
+  --card-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  --theme-accent: #3b82f6;
+  --theme-accent-soft: rgba(59, 130, 246, 0.15);
+}
+
+/* 3. VYAPAR TRENDING (Neo-Fintech / Emerald Forest & Gold Amber) */
+:root[data-vyapar-theme="trending"] {
+  --bg: #f0fdf4;
+  --card: #ffffff;
+  --ink: #064e3b;
+  --mute: #047857;
+  --line: #bbf7d0;
+  --due: #e11d48;
+  --ok: #059669;
+  --warn: #d97706;
+  --btn: #059669;
+  --btnt: #ffffff;
+  --card-shadow: 0 2px 5px -1px rgba(5, 150, 105, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --radius: 12px;
+  --theme-accent: #059669;
+  --theme-accent-soft: rgba(5, 150, 105, 0.1);
+}
+@media(prefers-color-scheme:dark) {
+  :root[data-vyapar-theme="trending"]:not([data-theme="light"]) {
+    --bg: #061e16;
+    --card: #0b2d22;
+    --ink: #ecfdf5;
+    --mute: #6ee7b7;
+    --line: #134e3a;
+    --due: #fb7185;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --btn: #10b981;
+    --btnt: #061e16;
+    --card-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    --theme-accent: #10b981;
+    --theme-accent-soft: rgba(16, 185, 129, 0.15);
+  }
+}
+:root[data-vyapar-theme="trending"][data-theme="dark"] {
+  --bg: #061e16;
+  --card: #0b2d22;
+  --ink: #ecfdf5;
+  --mute: #6ee7b7;
+  --line: #134e3a;
+  --due: #fb7185;
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --btn: #10b981;
+  --btnt: #061e16;
+  --card-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  --theme-accent: #10b981;
+  --theme-accent-soft: rgba(16, 185, 129, 0.15);
+}
+
+/* ========================================================
+   RESPONSIVE DESIGN SYSTEM: Desktop, Tablet, Mobile
+   ======================================================== */
+
+html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 15px/1.45 var(--font-main);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.wrap {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 16px;
+  transition: max-width var(--transition-fast), padding var(--transition-fast);
+}
+.wrap.wide {
+  max-width: 1360px;
+}
+
+/* ========================================================
+   SIDEBAR & TABS ARCHITECTURE (DESKTOP, TABLET, MOBILE)
+   ======================================================== */
+
+.app-sidebar {
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-sizing: border-box;
+}
+.sidebar-brand {
+  flex: none;
+  padding: 18px 16px 14px;
+}
+.sidebar-nav-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  padding: 10px 12px;
+  cursor: pointer;
+  border: 0;
+  font-family: inherit;
+  font-size: 13.5px;
+  transition: all 0.15s ease;
+  color: var(--ink);
+}
+.nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.nav-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-footer {
+  flex: none;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+
+/* 1. VYAPAR STANDARD THEME - Sidebar & Tabs */
+:root[data-vyapar-theme="standard"] .app-sidebar {
+  background: #ffffff;
+  border-right: 1px solid #d1d5db;
+}
+:root[data-vyapar-theme="standard"] .sidebar-brand {
+  background: #b91c1c;
+  color: #ffffff;
+  border-bottom: 2px solid #991b1b;
+}
+:root[data-vyapar-theme="standard"] .nav-item {
+  border-radius: 4px;
+  color: #374151;
+  font-weight: 600;
+  border-left: 3px solid transparent;
+}
+:root[data-vyapar-theme="standard"] .nav-item.active {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-left: 3.5px solid #b91c1c;
+  font-weight: 700;
+}
+:root[data-vyapar-theme="standard"] .nav-item:hover:not(.active) {
+  background: #f3f4f6;
+  color: #111827;
+}
+:root[data-vyapar-theme="standard"] .subtabs-bar,
+:root[data-vyapar-theme="standard"] .row.noprint:has(button[onclick*="TK_SUB"]) {
+  border-bottom: 2px solid #d1d5db;
+  padding-bottom: 4px;
+  gap: 4px;
+}
+:root[data-vyapar-theme="standard"] .subtabs-bar button,
+:root[data-vyapar-theme="standard"] .row.noprint:has(button[onclick*="TK_SUB"]) button {
+  border-radius: 4px 4px 0 0;
+  border: 1px solid #d1d5db;
+  border-bottom: none;
+  font-weight: 600;
+}
+:root[data-vyapar-theme="standard"] .subtabs-bar button:not(.ghost),
+:root[data-vyapar-theme="standard"] .row.noprint:has(button[onclick*="TK_SUB"]) button:not(.ghost) {
+  background: #b91c1c;
+  color: #ffffff;
+  border-color: #b91c1c;
+  font-weight: 700;
+}
+:root[data-vyapar-theme="standard"] .subtabs-bar button.ghost,
+:root[data-vyapar-theme="standard"] .row.noprint:has(button[onclick*="TK_SUB"]) button.ghost {
+  background: #f9fafb;
+  color: #374151;
+}
+
+/* 2. VYAPAR MODERN THEME - Sidebar & Tabs */
+:root[data-vyapar-theme="modern"] .app-sidebar,
+:root:not([data-vyapar-theme]) .app-sidebar {
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+}
+:root[data-vyapar-theme="modern"] .sidebar-brand,
+:root:not([data-vyapar-theme]) .sidebar-brand {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: #ffffff;
+}
+:root[data-vyapar-theme="modern"] .nav-item,
+:root:not([data-vyapar-theme]) .nav-item {
+  border-radius: 8px;
+  color: #475569;
+  font-weight: 600;
+}
+:root[data-vyapar-theme="modern"] .nav-item.active,
+:root:not([data-vyapar-theme]) .nav-item.active {
+  background: rgba(37, 99, 235, 0.09);
+  color: #2563eb;
+  font-weight: 700;
+}
+:root[data-vyapar-theme="modern"] .nav-item:hover:not(.active),
+:root:not([data-vyapar-theme]) .nav-item:hover:not(.active) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+:root[data-vyapar-theme="modern"] .subtabs-bar,
+:root:not([data-vyapar-theme]) .subtabs-bar,
+:root[data-vyapar-theme="modern"] .row.noprint:has(button[onclick*="TK_SUB"]),
+:root:not([data-vyapar-theme]) .row.noprint:has(button[onclick*="TK_SUB"]) {
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+:root[data-vyapar-theme="modern"] .subtabs-bar button,
+:root:not([data-vyapar-theme]) .subtabs-bar button,
+:root[data-vyapar-theme="modern"] .row.noprint:has(button[onclick*="TK_SUB"]) button,
+:root:not([data-vyapar-theme]) .row.noprint:has(button[onclick*="TK_SUB"]) button {
+  border-radius: 8px;
+  border: none;
+}
+:root[data-vyapar-theme="modern"] .subtabs-bar button:not(.ghost),
+:root:not([data-vyapar-theme]) .subtabs-bar button:not(.ghost),
+:root[data-vyapar-theme="modern"] .row.noprint:has(button[onclick*="TK_SUB"]) button:not(.ghost),
+:root:not([data-vyapar-theme]) .row.noprint:has(button[onclick*="TK_SUB"]) button:not(.ghost) {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+:root[data-vyapar-theme="modern"] .subtabs-bar button.ghost,
+:root:not([data-vyapar-theme]) .subtabs-bar button.ghost,
+:root[data-vyapar-theme="modern"] .row.noprint:has(button[onclick*="TK_SUB"]) button.ghost,
+:root:not([data-vyapar-theme]) .row.noprint:has(button[onclick*="TK_SUB"]) button.ghost {
+  background: transparent;
+  color: #64748b;
+}
+
+/* 3. VYAPAR TRENDING THEME - Sidebar & Tabs */
+:root[data-vyapar-theme="trending"] .app-sidebar {
+  background: #f0fdf4;
+  border-right: 1px solid #bbf7d0;
+}
+:root[data-vyapar-theme="trending"] .sidebar-brand {
+  background: linear-gradient(135deg, #064e3b, #059669);
+  color: #ffffff;
+}
+:root[data-vyapar-theme="trending"] .nav-item {
+  border-radius: 10px;
+  color: #064e3b;
+  font-weight: 600;
+}
+:root[data-vyapar-theme="trending"] .nav-item.active {
+  background: #059669;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
+}
+:root[data-vyapar-theme="trending"] .nav-item:hover:not(.active) {
+  background: rgba(5, 150, 105, 0.1);
+  color: #047857;
+}
+:root[data-vyapar-theme="trending"] .subtabs-bar,
+:root[data-vyapar-theme="trending"] .row.noprint:has(button[onclick*="TK_SUB"]) {
+  background: rgba(5, 150, 105, 0.06);
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid #bbf7d0;
+}
+:root[data-vyapar-theme="trending"] .subtabs-bar button,
+:root[data-vyapar-theme="trending"] .row.noprint:has(button[onclick*="TK_SUB"]) button {
+  border-radius: 999px;
+  border: none;
+}
+:root[data-vyapar-theme="trending"] .subtabs-bar button:not(.ghost),
+:root[data-vyapar-theme="trending"] .row.noprint:has(button[onclick*="TK_SUB"]) button:not(.ghost) {
+  background: #059669;
+  color: #ffffff;
+  box-shadow: 0 2px 5px rgba(5, 150, 105, 0.3);
+  font-weight: 700;
+}
+:root[data-vyapar-theme="trending"] .subtabs-bar button.ghost,
+:root[data-vyapar-theme="trending"] .row.noprint:has(button[onclick*="TK_SUB"]) button.ghost {
+  background: transparent;
+  color: #064e3b;
+}
+
+/* Dark mode for Sidebars */
+@media(prefers-color-scheme:dark) {
+  :root[data-vyapar-theme="standard"]:not([data-theme="light"]) .app-sidebar,
+  :root[data-vyapar-theme="standard"][data-theme="dark"] .app-sidebar {
+    background: #1f2937;
+    border-right-color: #374151;
+  }
+  :root[data-vyapar-theme="standard"]:not([data-theme="light"]) .nav-item,
+  :root[data-vyapar-theme="standard"][data-theme="dark"] .nav-item {
+    color: #e5e7eb;
+  }
+  :root[data-vyapar-theme="standard"]:not([data-theme="light"]) .nav-item.active,
+  :root[data-vyapar-theme="standard"][data-theme="dark"] .nav-item.active {
+    background: rgba(220, 38, 38, 0.2);
+    color: #fca5a5;
+  }
+
+  :root[data-vyapar-theme="modern"]:not([data-theme="light"]) .app-sidebar,
+  :root[data-vyapar-theme="modern"][data-theme="dark"] .app-sidebar,
+  :root:not([data-vyapar-theme]):not([data-theme="light"]) .app-sidebar {
+    background: #111827;
+    border-right-color: #1e293b;
+  }
+  :root[data-vyapar-theme="modern"]:not([data-theme="light"]) .nav-item,
+  :root[data-vyapar-theme="modern"][data-theme="dark"] .nav-item {
+    color: #cbd5e1;
+  }
+
+  :root[data-vyapar-theme="trending"]:not([data-theme="light"]) .app-sidebar,
+  :root[data-vyapar-theme="trending"][data-theme="dark"] .app-sidebar {
+    background: #0b2d22;
+    border-right-color: #134e3a;
+  }
+  :root[data-vyapar-theme="trending"]:not([data-theme="light"]) .nav-item,
+  :root[data-vyapar-theme="trending"][data-theme="dark"] .nav-item {
+    color: #a7f3d0;
+  }
+}
+
+/* ========================================================
+   RESPONSIVE VIEWPORT BREAKPOINTS: Desktop, Tablet, Mobile
+   ======================================================== */
+
+/* 1. DESKTOP VIEWPORT (>= 1024px) */
+@media (min-width: 1024px) {
+  body { font-size: 15px; }
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 230px;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
+  }
+  .wrap {
+    margin-left: 230px !important;
+    max-width: calc(100vw - 250px) !important;
+    width: calc(100vw - 250px) !important;
+    padding: 24px 32px !important;
+  }
+  .wrap.wide {
+    max-width: calc(100vw - 250px) !important;
+  }
+  .mobile-top-bar,
+  .top-tab-strip,
+  .sidebar-overlay,
+  .mobile-only,
+  .top-nav-grid,
+  .user-bar-top {
+    display: none !important;
+  }
+  .cust { box-shadow: var(--card-shadow); transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
+  .cust:hover { border-color: var(--theme-accent); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08); }
+  button:hover:not(:disabled) { filter: brightness(1.06); }
+  button.ghost:hover:not(:disabled) { background: var(--theme-accent-soft); border-color: var(--theme-accent); }
+  .setup-grid { grid-template-columns: repeat(4, 1fr) !important; }
+}
+
+/* 2. TABLET VIEWPORT (768px - 1023px) */
+@media (min-width: 768px) and (max-width: 1023px) {
+  body { font-size: 15px; }
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 74px;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
+  }
+  .sidebar-brand {
+    padding: 14px 4px;
+    text-align: center;
+  }
+  .sidebar-brand div {
+    font-size: 11px !important;
+  }
+  .brand-sub-text {
+    display: none !important;
+  }
+  .nav-item {
+    justify-content: center;
+    padding: 10px 4px;
+    flex-direction: column;
+    gap: 4px;
+    margin: 2px 4px;
+  }
+  .nav-label {
+    font-size: 10px;
+    text-align: center;
+    max-width: 100%;
+  }
+  .sidebar-footer {
+    display: flex !important;
+    flex-direction: column;
+    padding: 6px 4px !important;
+    gap: 4px;
+  }
+  .sidebar-footer .sidebar-user-info,
+  .sidebar-footer .sidebar-theme-pills {
+    display: none !important;
+  }
+  .sidebar-footer .footer-btns {
+    flex-direction: column !important;
+    gap: 4px !important;
+  }
+  .sidebar-footer button {
+    padding: 5px 2px !important;
+    font-size: 9.5px !important;
+    min-height: 0 !important;
+  }
+  .wrap {
+    margin-left: 74px !important;
+    max-width: calc(100vw - 86px) !important;
+    width: calc(100vw - 86px) !important;
+    padding: 18px 20px !important;
+  }
+  .mobile-top-bar,
+  .top-tab-strip,
+  .sidebar-overlay,
+  .mobile-only,
+  .top-nav-grid,
+  .user-bar-top {
+    display: none !important;
+  }
+  .setup-grid { grid-template-columns: repeat(3, 1fr) !important; }
+}
+
+/* 3. MOBILE VIEWPORT (< 768px) */
+@media (max-width: 767px) {
+  body { font-size: 14.5px; }
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 275px;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 200;
+  }
+  .app-sidebar.open {
+    transform: translateX(0);
+    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.35);
+  }
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 150;
+    backdrop-filter: blur(2px);
+  }
+  .sidebar-overlay.open {
+    display: block;
+  }
+  .top-nav-grid,
+  .user-bar-top {
+    display: none !important;
+  }
+  .wrap {
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 10px 10px 30px !important;
+  }
+  .mobile-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius, 8px);
+    margin-bottom: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 7px;
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    flex: none;
+    cursor: pointer;
+  }
+  .mobile-bar-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mobile-user-tag {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theme-accent);
+    background: var(--theme-accent-soft);
+    padding: 3px 7px;
+    border-radius: 999px;
+    flex: none;
+  }
+  .top-tab-strip {
+    display: flex;
+    gap: 5px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    margin-bottom: 12px;
+    scrollbar-width: none;
+  }
+  .top-tab-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .top-strip-tab {
+    flex: none;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--mute);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .top-strip-tab.active {
+    background: var(--btn);
+    color: var(--btnt);
+    border-color: var(--btn);
+    font-weight: 700;
+  }
+  .total { font-size: 34px !important; }
+  .btns { gap: 6px; }
+  .btns button { flex: 1 1 calc(50% - 6px); padding: 10px 8px; font-size: 13px; text-align: center; }
+  .setup-grid { grid-template-columns: repeat(3, 1fr) !important; }
+  #sheet { max-height: 94%; border-radius: 16px 16px 0 0; padding: 16px 14px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  input, select, textarea { min-height: 44px; font-size: 16px; }
+  button { min-height: 40px; }
+}
 h1{font-size:15px;font-weight:600;color:var(--mute);margin:0}
 .total{font-size:44px;font-weight:800;letter-spacing:-1px;color:var(--due);margin:2px 0 14px}
 input,select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;margin-top:4px}
@@ -98,10 +763,62 @@ th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}td.r,
   .dreg-tbl th.subhead{background:#f5f5f5!important}
 }
 #bdg{display:none;position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;background:var(--due);color:#fff;padding:8px 12px;font-size:14px;z-index:9;text-align:center}
+
+body.no-sidebar .wrap,
+body:has(#app-sidebar[style*="display: none"]) .wrap {
+  margin-left: auto !important;
+  margin-right: auto !important;
+  max-width: 520px !important;
+  width: 100% !important;
+}
+body.no-sidebar .app-sidebar,
+body.no-sidebar .mobile-top-bar,
+body.no-sidebar .top-tab-strip,
+body.no-sidebar .sidebar-overlay {
+  display: none !important;
+}
+
+.sidebar-theme-pills {
+  display: flex;
+  gap: 3px;
+  margin-top: 6px;
+}
+.theme-pill-btn {
+  flex: 1;
+  padding: 4px 1px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--mute);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+  min-height: 24px;
+}
+:root[data-vyapar-theme="standard"] .theme-pill-btn[onclick*="standard"] {
+  background: #b91c1c;
+  color: #ffffff;
+  border-color: #b91c1c;
+}
+:root[data-vyapar-theme="modern"] .theme-pill-btn[onclick*="modern"],
+:root:not([data-vyapar-theme]) .theme-pill-btn[onclick*="modern"] {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+:root[data-vyapar-theme="trending"] .theme-pill-btn[onclick*="trending"] {
+  background: #059669;
+  color: #ffffff;
+  border-color: #059669;
+}
 </style>
 </head>
 <body>
 <div id="bdg"></div>
+<div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
+<aside id="app-sidebar" class="app-sidebar"></aside>
 <div class="wrap" id="app"></div>
 <div id="modal"><div id="sheet"></div></div>
 <script>
@@ -173,7 +890,36 @@ function m2(n){return "\u20b9"+n.toFixed(2)}
 function tax(ls,ig){var g={},t=0;ls.forEach(function(l){var rt=l.g==null?18:l.g,a=l.q*l.r;t+=a;var o=g[rt]||(g[rt]={rate:rt,t:0});o.t+=a});var tx=Object.keys(g).map(function(k){var o=g[k];return{rate:o.rate,t:r2(o.t),x:r2(o.t*o.rate/100)}}).sort(function(a,b){return a.rate-b.rate});t=r2(t);var x=r2(tx.reduce(function(s,z){return s+z.x},0)),tot=Math.round(t+x);return{t:t,x:x,tot:tot,ro:r2(tot-t-x),ig:ig,tx:tx}}
 function igstFor(g){return !!(S.biz.gst&&g&&S.biz.gst.slice(0,2)!=g.slice(0,2))}
 function curG(){return dr.cust!="0"?find(dr.cust).gst:dr.wgst}
-function nav(){var T=[["ledger","Ledger"],["inv","Invoices"],["stock","Stock"],["sup","Suppliers"],["book","Book"],["rep","Reports"],["bak","Backup"]];if(SRV)T.splice(1,0,["duty","Duty"],["tanks","Tanks"]);if(SRV&&ME&&ME.role=="owner")T.push(["pay","Salary"],["setup","Pump setup"]);if(SRV&&ME&&(ME.role=="owner"||ME.role=="manager"))T.push(["team","Team"]);return ubar()+'<div class="noprint" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">'+T.map(function(t){return '<button style="padding:10px 0;font-size:13px;min-width:0" class="'+(tab==t[0]?'':'ghost')+'" onclick="tab=\''+t[0]+'\';view=null;iv=null;dr=null;sv=null;render()">'+t[1]+'</button>'}).join("")+'</div>'}
+function nav(){
+  renderSidebar();
+  var bizName = (S && S.biz && S.biz.name) ? S.biz.name : "Vyapar Pump";
+  var T=[["ledger","Ledger"],["inv","Invoices"],["stock","Stock"],["sup","Suppliers"],["book","Book"],["rep","Reports"],["bak","Backup"]];
+  if(SRV)T.splice(1,0,["duty","Duty"],["tanks","Tanks"]);
+  if(SRV&&ME&&ME.role=="owner")T.push(["pay","Salary"],["setup","Pump setup"]);
+  if(SRV&&ME&&(ME.role=="owner"||ME.role=="manager"))T.push(["team","Team"]);
+
+  var mobileTop = '<div class="mobile-top-bar noprint">' +
+    '<button type="button" class="mobile-menu-btn" onclick="toggleSidebar(true)" aria-label="Open menu">' +
+      '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>' +
+    '</button>' +
+    '<div class="mobile-bar-title">' + esc(bizName) + '</div>' +
+    (ME ? '<div class="mobile-user-tag">' + esc(ME.role) + '</div>' : '') +
+  '</div>';
+
+  var topStrip = '<div class="top-tab-strip noprint">' +
+    T.map(function(t){
+      return '<button type="button" class="top-strip-tab' + (tab==t[0]?' active':'') + '" onclick="tab=\''+t[0]+'\';view=null;iv=null;dr=null;sv=null;render()">' + t[1] + '</button>';
+    }).join("") +
+  '</div>';
+
+  var desktopGrid = '<div class="top-nav-grid noprint" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">' +
+    T.map(function(t){
+      return '<button style="padding:10px 0;font-size:13px;min-width:0" class="'+(tab==t[0]?'':'ghost')+'" onclick="tab=\''+t[0]+'\';view=null;iv=null;dr=null;sv=null;render()">'+t[1]+'</button>';
+    }).join("") +
+  '</div>';
+
+  return ubar() + mobileTop + topStrip + desktopGrid;
+}
 function renderInv(){var h=nav();
 if(dr)h+=draftHtml();else if(iv)h+=invHtml(iv);else{
 h+='<h1>GST invoices for lubricants and shop items</h1><div class="btns"><button onclick="newInv()">New invoice</button><button class="ghost" onclick="bizForm()">Business details</button></div>';
@@ -342,7 +1088,33 @@ function fnum(x){var n=parseFloat(x);return isNaN(n)?0:n}
 function R2(a,b){return '<div class="row"><span>'+a+'</span><span style="text-align:right">'+b+'</span></div>'}
 function sect(t){return '<h1 style="margin:16px 0 6px;color:var(--ink);font-size:17px;font-weight:800">'+t+'</h1>'}
 function sgn(x){return Math.abs(x)<1?'Tally':(x<0?'Short ':'Excess ')+inr(Math.abs(x))}
-function wnav(){var T=[["wduty","Duty","loadW"],["credit","Credit sale","loadCredit"],["wdip","Tank dip","loadDip"],["mypay","My pay","loadMyPay"]];return '<div class="noprint" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">'+T.map(function(t){return '<button style="padding:10px 4px;font-size:14px" class="'+(tab==t[0]?'':'ghost')+'" onclick="tab=\''+t[0]+'\';'+t[2]+'()">'+t[1]+'</button>'}).join("")+'</div>'}
+function wnav(){
+  renderSidebar();
+  var bizName = (S && S.biz && S.biz.name) ? S.biz.name : "Vyapar Pump";
+  var T=[["wduty","Duty","loadW"],["credit","Credit sale","loadCredit"],["wdip","Tank dip","loadDip"],["mypay","My pay","loadMyPay"]];
+
+  var mobileTop = '<div class="mobile-top-bar noprint">' +
+    '<button type="button" class="mobile-menu-btn" onclick="toggleSidebar(true)" aria-label="Open menu">' +
+      '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>' +
+    '</button>' +
+    '<div class="mobile-bar-title">' + esc(bizName) + '</div>' +
+    (ME ? '<div class="mobile-user-tag">' + esc(ME.role) + '</div>' : '') +
+  '</div>';
+
+  var topStrip = '<div class="top-tab-strip noprint">' +
+    T.map(function(t){
+      return '<button type="button" class="top-strip-tab' + (tab==t[0]?' active':'') + '" onclick="tab=\''+t[0]+'\';'+t[2]+'()">' + t[1] + '</button>';
+    }).join("") +
+  '</div>';
+
+  var desktopGrid = '<div class="top-nav-grid noprint" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">' +
+    T.map(function(t){
+      return '<button style="padding:10px 4px;font-size:14px" class="'+(tab==t[0]?'':'ghost')+'" onclick="tab=\''+t[0]+'\';'+t[2]+'()">'+t[1]+'</button>';
+    }).join("") +
+  '</div>';
+
+  return mobileTop + topStrip + desktopGrid;
+}
 function dsum(){var e=document.getElementById("dsum");if(!e||!DF)return;var L=0,A=0,P=0,X=0,C=0;
 DF.lines.forEach(function(l,i){var no=l.closing==="",lt=no?0:Math.round((fnum(l.closing)-fnum(l.opening)-fnum(l.testing))*100)/100,am=Math.round(lt*fnum(l.rate)*100)/100;if((l.unit||"L")=="L")L+=lt;A+=am;var x=document.getElementById("dl"+i);if(x)x.textContent=no?"Enter the closing reading":lt+" "+(l.unit||"L")+" sold = "+m2(am)});
 DF.items.forEach(function(it,i){var s=DF.stock.filter(function(x){return x.id==it.item_id})[0],am=s?Math.round(fnum(it.qty)*s.sell*100)/100:0;P+=am;var x=document.getElementById("il"+i);if(x)x.textContent=s?m2(am):""});
@@ -422,11 +1194,173 @@ else if(RV=="det")r.duties.forEach(function(d){h+=dutyBlock(d,mn)});
 else{var tb=function(title,head,rows){return rows.length?sect(title)+'<div class="tbl"><table style="min-width:0"><tr>'+head.map(function(c,i){return '<th'+(i?' class="r"':'')+'>'+c+'</th>'}).join("")+'</tr>'+rows.map(function(x){return '<tr>'+x.map(function(c,i){return '<td'+(i?' class="r"':'')+'>'+c+'</td>'}).join("")+'</tr>'}).join("")+'</table></div>':''};
 h+=tb("Fuel sold",["Fuel","Quantity","Amount"],Object.keys(s.fuel).map(function(k){return [esc(k),Math.round(s.fuel[k].litres*100)/100,m2(s.fuel[k].amount)]}))+tb("Lubes and shop",["Item","Qty","Amount"],Object.keys(s.shop).map(function(k){return [esc(k),s.shop[k].qty,m2(s.shop[k].amount)]}))+tb("Expenses by category",["Category","Amount"],Object.keys(s.exps).map(function(k){return [esc(k),m2(s.exps[k])]}))+tb("Collections",["Mode","Amount"],Object.keys(s.pay).map(function(k){return [esc(mn[k]||k),m2(s.pay[k])]}))+sect("Totals")+'<div class="cust" style="cursor:default">'+R2("Fuel sales",m2(s.sales))+R2("Lube and shop sales",m2(s.lube))+R2("<b>Total sales</b>","<b>"+m2(s.total)+"</b>")+R2("Credit sales",m2(s.credit))+R2("Expenses",m2(s.exp))+R2("Expected collection",m2(s.expected))+R2("Collected",m2(s.collected))+'<div class="amt" style="color:'+(Math.abs(s.diff)<1?'var(--ok)':'var(--due)')+'">'+R2("Difference",sgn(s.diff))+'</div><div class="sub">'+r.duties.length+' closed dut'+(r.duties.length>1?'ies':'y')+'</div></div>'}
 XD=dayDoc(r,mn);document.getElementById("app").innerHTML=h}).catch(function(e){toast(e.error||"Could not load the report.")})}
+// ---- Vyapar Themes System
+var VYAPAR_THEMES = [
+  {
+    id: "standard",
+    name: "Vyapar Standard",
+    badge: "Classic Ledger",
+    desc: "Traditional Indian Bahi-Khata ledger styling. Crimson red branding, crisp tabular borders, and high contrast for fast billing counter scanning.",
+    primary: "#B91C1C",
+    surface: "#FFFFFF",
+    bg: "#F3F4F6",
+    ink: "#111827",
+    due: "#DC2626",
+    ok: "#15803D"
+  },
+  {
+    id: "modern",
+    name: "Vyapar Modern",
+    badge: "Sleek SaaS",
+    desc: "Contemporary fintech & SaaS billing style. Sapphire Indigo Blue with soft layered cards, gentle rounded corners, and calm slate background.",
+    primary: "#2563EB",
+    surface: "#FFFFFF",
+    bg: "#F8FAFC",
+    ink: "#0F172A",
+    due: "#EF4444",
+    ok: "#10B981"
+  },
+  {
+    id: "trending",
+    name: "Vyapar Trending",
+    badge: "Neo-Fintech / Retail",
+    desc: "High-energy retail & modern fuel station look. Emerald Forest Green representing positive cash flow, paired with Warm Gold/Amber accents.",
+    primary: "#059669",
+    surface: "#FFFFFF",
+    bg: "#F0FDF4",
+    ink: "#064E3B",
+    due: "#E11D48",
+    ok: "#059669"
+  }
+];
+
+function getVyaparTheme() {
+  try {
+    return localStorage.getItem("vyapar_theme") || "modern";
+  } catch(e) {
+    return "modern";
+  }
+}
+
+function setVyaparTheme(themeId) {
+  try {
+    localStorage.setItem("vyapar_theme", themeId);
+  } catch(e) {}
+  document.documentElement.setAttribute("data-vyapar-theme", themeId);
+  toast("Theme switched to " + (themeId === "standard" ? "Vyapar Standard" : themeId === "trending" ? "Vyapar Trending" : "Vyapar Modern"));
+  renderSidebar();
+  if (tab === "setup") renderSetup();
+}
+
+function toggleSidebar(open) {
+  var sb = document.getElementById("app-sidebar");
+  var ov = document.getElementById("sidebar-overlay");
+  if (!sb) return;
+  var isOpen = (open === undefined) ? !sb.classList.contains("open") : !!open;
+  if (isOpen) {
+    sb.classList.add("open");
+    if (ov) ov.classList.add("open");
+  } else {
+    sb.classList.remove("open");
+    if (ov) ov.classList.remove("open");
+  }
+}
+
+function renderSidebar() {
+  var sb = document.getElementById("app-sidebar");
+  if (!sb) return;
+  if (!ME) {
+    sb.style.display = "none";
+    var ov = document.getElementById("sidebar-overlay");
+    if (ov) ov.classList.remove("open");
+    document.body.classList.add("no-sidebar");
+    return;
+  }
+  document.body.classList.remove("no-sidebar");
+  sb.style.display = "";
+  var curTh = getVyaparTheme();
+  var bizName = (S && S.biz && S.biz.name) ? S.biz.name : "Vyapar Pump";
+  var bizGst = (S && S.biz && S.biz.gst) ? S.biz.gst : "";
+
+  var navItems = [];
+  if (ME.role === "worker") {
+    navItems = [
+      { id: "wduty", label: "My Duty", icon: "⛽", action: "tab='wduty';loadW()" },
+      { id: "credit", label: "Credit Sale", icon: "💳", action: "tab='credit';loadCredit()" },
+      { id: "wdip", label: "Tank Dip", icon: "📏", action: "tab='wdip';loadDip()" },
+      { id: "mypay", label: "My Pay", icon: "💵", action: "tab='mypay';loadMyPay()" }
+    ];
+  } else {
+    navItems = [
+      { id: "ledger", label: "Ledger", icon: "📒", action: "tab='ledger';view=null;render()" },
+      { id: "duty", label: "Duty & Nozzles", icon: "⛽", action: "tab='duty';render()" },
+      { id: "tanks", label: "Tanks & Stock", icon: "🛢️", action: "tab='tanks';render()" },
+      { id: "inv", label: "Invoices", icon: "🧾", action: "tab='inv';view=null;iv=null;dr=null;render()" },
+      { id: "stock", label: "Stock & Lubes", icon: "📦", action: "tab='stock';render()" },
+      { id: "sup", label: "Suppliers", icon: "🚚", action: "tab='sup';sv=null;render()" },
+      { id: "book", label: "Cash Book", icon: "📖", action: "tab='book';render()" },
+      { id: "rep", label: "Reports", icon: "📊", action: "tab='rep';render()" }
+    ];
+    if (ME.role === "owner" || ME.role === "manager") {
+      navItems.push({ id: "team", label: "Team", icon: "👥", action: "tab='team';render()" });
+    }
+    if (ME.role === "owner") {
+      navItems.push({ id: "pay", label: "Salary", icon: "💰", action: "tab='pay';render()" });
+      navItems.push({ id: "setup", label: "Pump Setup", icon: "⚙️", action: "tab='setup';render()" });
+    }
+    navItems.push({ id: "bak", label: "Backup", icon: "💾", action: "tab='bak';render()" });
+  }
+
+  var activeThBadge = curTh === "standard" ? "Standard" : (curTh === "trending" ? "Trending" : "Modern");
+
+  var h = '<div class="sidebar-brand">' +
+    '<div style="font-size:15px;font-weight:800;letter-spacing:-0.2px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(bizName) + '">' + esc(bizName) + '</div>' +
+    '<div style="font-size:11px;opacity:0.88;margin-top:2px;display:flex;align-items:center;gap:4px">' +
+      '<span class="brand-sub-text">' + (bizGst ? esc(bizGst) : "Fuel Station") + '</span>' +
+      '<span style="background:rgba(255,255,255,0.22);padding:1px 5px;border-radius:4px;font-size:9.5px;font-weight:700">' + activeThBadge + '</span>' +
+    '</div>' +
+  '</div>';
+
+  h += '<div class="sidebar-nav-list">';
+  navItems.forEach(function(item) {
+    var isAct = (tab === item.id);
+    h += '<button type="button" class="nav-item' + (isAct ? ' active' : '') + '" onclick="toggleSidebar(false);' + item.action + '" title="' + esc(item.label) + '">' +
+      '<span class="nav-icon" style="font-size:17px">' + item.icon + '</span>' +
+      '<span class="nav-label">' + esc(item.label) + '</span>' +
+    '</button>';
+  });
+  h += '</div>';
+
+  h += '<div class="sidebar-footer">' +
+    '<div class="sidebar-user-info" style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px">' +
+      '<span style="font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(ME.name) + '</span>' +
+      '<span style="font-size:10px;text-transform:uppercase;font-weight:700;padding:2px 6px;border-radius:999px;background:var(--theme-accent-soft);color:var(--theme-accent)">' + esc(ME.role) + '</span>' +
+    '</div>' +
+    '<div class="footer-btns" style="display:flex;gap:4px;margin-bottom:4px">' +
+      '<button type="button" class="ghost" style="flex:1;padding:4px 2px;font-size:11px" onclick="pwForm()" title="Change password">Password</button>' +
+      (ME.role === "owner" ? '<button type="button" class="ghost" style="flex:1;padding:4px 2px;font-size:11px" onclick="toggleSidebar(false);tab=\'setup\';SU=\'theme\';renderSetup()" title="Theme Switcher">Theme</button>' : '') +
+      '<button type="button" class="ghost" style="flex:1;padding:4px 2px;font-size:11px" onclick="logout()" title="Log out">Log out</button>' +
+    '</div>' +
+    '<div class="sidebar-theme-pills">' +
+      '<button type="button" class="theme-pill-btn" onclick="setVyaparTheme(\'standard\')" title="Vyapar Standard Theme (Crimson Red / Classic Ledger)">Standard</button>' +
+      '<button type="button" class="theme-pill-btn" onclick="setVyaparTheme(\'modern\')" title="Vyapar Modern Theme (Sapphire Blue / Modern SaaS)">Modern</button>' +
+      '<button type="button" class="theme-pill-btn" onclick="setVyaparTheme(\'trending\')" title="Vyapar Trending Theme (Emerald Green / Retail Flow)">Trending</button>' +
+    '</div>' +
+    (ME.role === "worker" ? '<div style="margin-top:4px">' + langSel() + '</div>' : '') +
+  '</div>';
+
+  sb.innerHTML = h;
+}
+
+try {
+  document.documentElement.setAttribute("data-vyapar-theme", getVyaparTheme());
+} catch(e) {}
+
 // ---- Pump setup (owner)
 function rateNow(f,d){var b=null;S.rates.forEach(function(r){if(r.fuel==f&&r.from<=d&&(!b||r.from>b.from||(r.from==b.from&&r.id>b.id)))b=r});return b}
 function renderSetup(){var A=document.getElementById("app");if(!SRV){A.innerHTML=nav()+'<div class="empty">Pump setup needs the server. It is not available in this preview.</div>';return}
-tab="setup";var T=[["nozzles","Nozzles"],["open","Opening readings"],["rates","Fuel rates"],["cats","Expense categories"],["modes","Payment modes"],["cust","Credit customers"],["fuels","Fuel products"],["audit","Audit log"]];
-var h=nav()+'<h1>Pump setup</h1><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px">'+T.map(function(t){return '<button style="padding:9px 2px;font-size:13px;min-width:0" class="'+(SU==t[0]?'':'ghost')+'" onclick="SU=\''+t[0]+'\';renderSetup()">'+t[1]+'</button>'}).join("")+'</div>';
+tab="setup";var T=[["nozzles","Nozzles"],["open","Opening readings"],["rates","Fuel rates"],["cats","Expense categories"],["modes","Payment modes"],["cust","Credit customers"],["fuels","Fuel products"],["theme","Theme switcher"],["audit","Audit log"]];
+var h=nav()+'<h1>Pump setup</h1><div class="setup-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px">'+T.map(function(t){return '<button style="padding:9px 2px;font-size:13px;min-width:0" class="'+(SU==t[0]?'':'ghost')+'" onclick="SU=\''+t[0]+'\';renderSetup()">'+t[1]+'</button>'}).join("")+'</div>';
 var tn=function(id){var t=S.tanks.filter(function(x){return x.id==id})[0];return t?t.name:"No tank"};
 if(SU=="nozzles"){h+='<div class="btns"><button onclick="nozEdit(0)">Add nozzle</button></div>';if(!S.nozzles.length)h+='<div class="empty">No nozzles yet.</div>';
 S.nozzles.forEach(function(n){h+='<div class="cust" style="cursor:default'+(n.active===false?';opacity:.6':'')+'"><div class="row"><b>'+esc(n.name)+'</b><span class="sub" style="flex:none">'+(n.active===false?'Inactive':'Active')+'</span></div><div class="sub">'+esc(n.fuel)+' \u00b7 '+esc(tn(n.tank_id))+'</div><div class="btns" style="margin:8px 0 0"><button class="ghost" style="padding:6px 10px" onclick="nozEdit('+n.id+')">Edit</button></div></div>'})}
@@ -443,6 +1377,37 @@ else if(SU=="modes"){h+='<div class="sub">Turn off the payment modes you do not 
 h+='<label>Add a payment mode<input id="nm" placeholder="e.g. Fleet card"></label><div class="err" id="er"></div><button style="margin-top:10px" onclick="modeAdd()">Add mode</button>'}
 else if(SU=="fuels"){h+='<div class="sub">The fuels you sell. Choose a unit for each (litre, kg for CNG, kWh for EV charging). Density limits are used to flag density checks on liquid fuels. The limits shown first are common defaults: confirm them with your oil company and change them here.</div><div class="btns"><button onclick="fuelEdit(-1)">Add fuel product</button></div>';
 fprods().forEach(function(p,i){var cf=p.unit=="L"?'<div class="sub">Density '+(p.dmin!=null&&p.dmin!==""?p.dmin:(DENSD[p.name]?DENSD[p.name][0]:"no limit"))+' to '+(p.dmax!=null&&p.dmax!==""?p.dmax:(DENSD[p.name]?DENSD[p.name][1]:"no limit"))+' \u00b7 tolerance '+(p.dtol!=null&&p.dtol!==""?p.dtol:0.003)+'</div>':'';h+='<div class="cust" style="cursor:default'+(p.active===false?';opacity:.6':'')+'"><div class="row"><b>'+esc(p.name)+'</b><span class="sub" style="flex:none">'+esc(p.unit)+(p.active===false?' \u00b7 inactive':'')+'</span></div>'+cf+'<div class="btns" style="margin:8px 0 0"><button class="ghost" style="padding:6px 10px" onclick="fuelEdit('+i+')">Edit</button></div></div>'})}
+else if(SU=="theme"){
+  var curTheme = getVyaparTheme();
+  h+='<div class="sub" style="margin-bottom:12px">Choose from the 3 themes inspired by the Vyapar app. Responsive for desktop, tablet, and mobile displays.</div>';
+  h+='<div class="theme-switcher-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:14px">';
+  VYAPAR_THEMES.forEach(function(th){
+    var isAct = th.id === curTheme;
+    h+='<div class="cust" style="cursor:pointer;padding:15px;margin:0;border:2px solid '+(isAct?'var(--theme-accent)':'var(--line)')+';background:var(--card);position:relative" onclick="setVyaparTheme(\''+th.id+'\')">'+
+      '<div class="row" style="align-items:center;margin-bottom:6px">'+
+        '<b style="font-size:16px;color:var(--ink)">'+esc(th.name)+'</b>'+
+        '<span style="flex:none;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;'+(isAct?'background:var(--btn);color:var(--btnt)':'background:var(--line);color:var(--mute)')+'">'+(isAct?'Active':'Select')+'</span>'+
+      '</div>'+
+      '<div style="font-size:11px;font-weight:700;color:'+th.primary+';text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">'+esc(th.badge)+'</div>'+
+      '<div class="sub" style="font-size:12px;line-height:1.45;margin-bottom:12px">'+esc(th.desc)+'</div>'+
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">'+
+        '<span style="font-size:11px;color:var(--mute);font-weight:600;margin-right:2px">Palette:</span>'+
+        '<span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:'+th.primary+';border:1px solid rgba(0,0,0,0.1)" title="Primary Accent ('+th.primary+')"></span>'+
+        '<span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:'+th.bg+';border:1px solid #cbd5e1" title="Canvas Background ('+th.bg+')"></span>'+
+        '<span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:'+th.surface+';border:1px solid #cbd5e1" title="Card Surface ('+th.surface+')"></span>'+
+        '<span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:'+th.due+';border:1px solid rgba(0,0,0,0.1)" title="Dues ('+th.due+')"></span>'+
+        '<span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:'+th.ok+';border:1px solid rgba(0,0,0,0.1)" title="Tally / Settled ('+th.ok+')"></span>'+
+      '</div>'+
+      '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:11px;color:var(--mute);margin-bottom:12px">'+
+        '<span style="background:var(--theme-accent-soft);color:var(--theme-accent);padding:2px 6px;border-radius:4px;font-weight:600">Desktop</span>'+
+        '<span style="background:var(--theme-accent-soft);color:var(--theme-accent);padding:2px 6px;border-radius:4px;font-weight:600">Tablet</span>'+
+        '<span style="background:var(--theme-accent-soft);color:var(--theme-accent);padding:2px 6px;border-radius:4px;font-weight:600">Mobile</span>'+
+      '</div>'+
+      '<button style="width:100%;padding:9px" class="'+(isAct?'':'ghost')+'" onclick="event.stopPropagation();setVyaparTheme(\''+th.id+'\')">'+(isAct?'Current Theme':'Apply '+th.name)+'</button>'+
+    '</div>';
+  });
+  h+='</div>';
+}
 else if(SU=="audit"){h+='<div class="sub">Every change is recorded here with who made it and when. Only the owner can see this.</div><label>Search<input id="aq" placeholder="Name, action or text" onchange="loadAudit()"></label><div id="al" style="margin-top:8px"></div>'}
 else{h+='<div class="sub">Inactive customers are hidden from workers and invoices. Their ledger stays.</div>';if(!S.c.length)h+='<div class="empty">No credit customers yet.</div>';S.c.forEach(function(c){h+='<div class="row" style="margin-top:8px"><span>'+esc(c.name)+'</span><button class="'+(c.active===false?'ghost':'')+'" style="flex:none;padding:6px 10px" onclick="custTog('+c.id+')">'+(c.active===false?'Inactive':'Active')+'</button></div>'})}
 A.innerHTML=h;if(SU=="audit")loadAudit()}
@@ -2703,11 +3668,11 @@ function startI18n(){if(I18||!window.MutationObserver)return;var obs=function(){
 I18=new MutationObserver(function(){if(LANG=="en")return;I18.disconnect();trAll();obs()});obs()}
 function setLang(l){LANG=l;api("POST","/api/lang",{lang:l}).catch(function(){});var f={wduty:loadW,credit:loadCredit,wdip:loadDip,mypay:loadMyPay}[tab];if(f)f();trAll()}
 function langSel(){return '<select style="flex:none;width:auto;padding:5px 6px;margin:0" onchange="setLang(this.value)" aria-label="Language"><option value="en"'+(LANG=="en"?' selected':'')+'>English</option><option value="mr"'+(LANG=="mr"?' selected':'')+'>मराठी</option><option value="hi"'+(LANG=="hi"?' selected':'')+'>हिन्दी</option></select>'}
-function ubar(){return SRV&&ME?'<div class="row noprint" style="margin-bottom:10px;gap:6px"><span class="sub" style="flex:1">'+esc(ME.name)+' ('+ME.role+')</span>'+(ME.role=="worker"?langSel():"")+'<button class="ghost" style="padding:5px 10px;flex:none" onclick="pwForm()">Password</button><button class="ghost" style="padding:5px 10px;flex:none" onclick="logout()">Log out</button></div>':''}
+function ubar(){return SRV&&ME?'<div class="user-bar-top row noprint" style="margin-bottom:10px;gap:6px"><span class="sub" style="flex:1">'+esc(ME.name)+' ('+ME.role+')</span>'+(ME.role=="worker"?langSel():"")+'<button class="ghost" style="padding:5px 10px;flex:none" onclick="pwForm()">Password</button><button class="ghost" style="padding:5px 10px;flex:none" onclick="logout()">Log out</button></div>':''}
 function boot(){api("GET","/api/me").then(function(m){SRV=true;ME=m.user;if(m.biz){DD=m.biz;SF=m.biz.slice(0,8)+"01";ST=m.biz;VM=m.biz.slice(0,7)}if(!ME)return authView(m.setup);start()}).catch(function(){SRV=false;localStart()})}
-function start(){view=null;if(ME.role=="worker"){LANG=ME.lang||"en";startI18n();tab="wduty";return loadW()}tab="ledger";
+function start(){view=null;renderSidebar();if(ME.role=="worker"){LANG=ME.lang||"en";startI18n();tab="wduty";return loadW()}tab="ledger";
 api("GET","/api/state").then(function(r){VERS=r.vers||{};S=r.state||emptyS();normS();snapAll();pullDuty(render)}).catch(function(e){badge("Could not load data: "+(e.error||"check your connection"))})}
-function authView(setup){var h='<h1 style="font-size:22px;color:var(--ink);font-weight:800;margin:20px 0 4px">Petrol pump manager</h1><div class="sub">'+(setup?'Create the owner account to get started.':'Log in with your mobile number and password.')+'</div>'+(setup?'<label>Your name<input id="a0"></label>':'')+'<label>Mobile number<input id="a1" inputmode="tel" autocomplete="username"></label><label>Password<input id="a2" type="password" autocomplete="'+(setup?'new-password':'current-password')+'"></label><div class="err" id="er"></div><button style="width:100%;margin-top:6px" onclick="doAuth('+(setup?1:0)+')">'+(setup?'Create owner account':'Log in')+'</button>';
+function authView(setup){document.body.classList.add("no-sidebar");renderSidebar();var h='<h1 style="font-size:22px;color:var(--ink);font-weight:800;margin:20px 0 4px">Petrol pump manager</h1><div class="sub">'+(setup?'Create the owner account to get started.':'Log in with your mobile number and password.')+'</div>'+(setup?'<label>Your name<input id="a0"></label>':'')+'<label>Mobile number<input id="a1" inputmode="tel" autocomplete="username"></label><label>Password<input id="a2" type="password" autocomplete="'+(setup?'new-password':'current-password')+'"></label><div class="err" id="er"></div><button style="width:100%;margin-top:6px" onclick="doAuth('+(setup?1:0)+')">'+(setup?'Create owner account':'Log in')+'</button>';
 document.getElementById("app").innerHTML=h;document.getElementById("a2").onkeydown=function(e){if(e.key=="Enter")doAuth(setup?1:0)}}
 function doAuth(setup){var b={mobile:v("a1"),password:document.getElementById("a2").value};if(setup)b.name=v("a0");api("POST",setup?"/api/setup":"/api/login",b).then(function(r){if(r.token){AUTH_TOKEN=r.token;try{localStorage.setItem("petrol_auth_token",r.token)}catch(e){}}ME=r.user;start()}).catch(function(e){er(e.error||"Could not log in. Check your connection.")})}
 function logout(){try{localStorage.removeItem("petrol_auth_token")}catch(e){}AUTH_TOKEN="";api("POST","/api/logout").then(function(){location.reload()}).catch(function(){location.reload()})}
