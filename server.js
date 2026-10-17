@@ -596,9 +596,9 @@ app.post("/api/users", need("owner", "manager"), (q, s) => {
   if (db.prepare("select 1 from users where pump_id=? and mobile=?").get(pid, m)) {
     return s.status(409).json({ error: "This mobile number is already registered at this pump station." });
   }
-  db.prepare("insert into users(pump_id,name,mobile,hash,role) values(?,?,?,?,?)")
+  const info = db.prepare("insert into users(pump_id,name,mobile,hash,role) values(?,?,?,?,?)")
     .run(pid, String(name).trim(), m, bcrypt.hashSync(password, 10), role);
-  s.json({ ok: true });
+  s.json({ ok: true, id: info.lastInsertRowid, user: { id: info.lastInsertRowid, name: String(name).trim(), mobile: m, role } });
 });
 
 app.patch("/api/users/:id", need("owner", "manager"), (q, s) => {
@@ -1319,7 +1319,7 @@ function computeDayCashFlow(pid, d, visited = new Set()) {
 }
 
 // Cash flow API routes
-app.get("/api/cashflow/day/:d?", need("owner", "manager"), (q, s) => {
+app.get(["/api/cashflow/day", "/api/cashflow/day/:d"], need("owner", "manager"), (q, s) => {
   const pid = q.user.pump_id;
   const d = validDay(q.params.d || q.query.d) ? (q.params.d || q.query.d) : bizDate();
   s.json(computeDayCashFlow(pid, d));
@@ -1503,6 +1503,7 @@ function tankChecks(pumpId = 1) {
       const fRate = fuelRateFor(st, tk.fuel, dDate) ?? fuelRateFor(st, tk.fuel, bizDate());
       checks.push({
         id: c.id,
+        d: dDate,
         from: p.t,
         to: c.t,
         rate: fRate,
@@ -1537,7 +1538,7 @@ function tankChecks(pumpId = 1) {
       capacity: tk.capacity || 0,
       last: last ? { id: last.id, litres: last.litres, dip: last.dip, t: last.t, by: last.by_name } : null,
       book,
-      checks: checks.slice(-60).reverse()
+      checks: checks.slice(-365).reverse()
     };
   });
 }
@@ -1759,6 +1760,51 @@ app.post("/api/density-register", need("owner", "manager"), (q, s) => {
   const chalan_no = String(b.chalan_no || "").trim().slice(0, 50);
 
   const t = Math.floor(new Date(d + "T10:00:00").getTime() / 1000);
+
+  // Check if an existing record exists for this tank on this date
+  let existing = null;
+  if (b.id) {
+    existing = db.prepare("select * from density_register where id=? and pump_id=?").get(+b.id, pid);
+  } else {
+    existing = db.prepare("select * from density_register where pump_id=? and tank_id=? and d=? order by id desc limit 1").get(pid, tid, d);
+  }
+
+  if (existing) {
+    const final_m_obs = m_obs !== null ? m_obs : existing.m_obs;
+    const final_m_temp = m_temp !== null ? m_temp : existing.m_temp;
+    const final_m_d15 = m_d15 !== null ? m_d15 : existing.m_d15;
+    const final_comp1 = comp1 !== null ? comp1 : existing.comp1;
+    const final_comp2 = comp2 !== null ? comp2 : existing.comp2;
+    const final_comp3 = comp3 !== null ? comp3 : existing.comp3;
+    const final_comp4 = comp4 !== null ? comp4 : existing.comp4;
+    const final_mix_dens = mix_dens !== null ? mix_dens : existing.mix_dens;
+    const final_chalan_dens = chalan_dens !== null ? chalan_dens : existing.chalan_dens;
+    const final_dens_diff = dens_diff !== null ? dens_diff : existing.dens_diff;
+    const final_pre_dip = pre_dip !== null ? pre_dip : existing.pre_dip;
+    const final_pre_stock = pre_stock !== null ? pre_stock : existing.pre_stock;
+    const final_post_dens = post_dens !== null ? post_dens : existing.post_dens;
+    const final_receipt_kl = receipt_kl !== null ? receipt_kl : existing.receipt_kl;
+    const final_chalan_no = chalan_no ? chalan_no : existing.chalan_no;
+
+    db.prepare(`
+      update density_register set
+        m_obs=?, m_temp=?, m_d15=?,
+        comp1=?, comp2=?, comp3=?, comp4=?,
+        mix_dens=?, chalan_dens=?, dens_diff=?,
+        pre_dip=?, pre_stock=?, post_dens=?,
+        receipt_kl=?, chalan_no=?, user_id=?, by_name=?
+      where id=? and pump_id=?
+    `).run(
+      final_m_obs, final_m_temp, final_m_d15,
+      final_comp1, final_comp2, final_comp3, final_comp4,
+      final_mix_dens, final_chalan_dens, final_dens_diff,
+      final_pre_dip, final_pre_stock, final_post_dens,
+      final_receipt_kl, final_chalan_no, q.user.id, q.user.name,
+      existing.id, pid
+    );
+    return s.json({ ok: true, id: existing.id, updated: true });
+  }
+
   const stmt = db.prepare(`
     insert into density_register(pump_id, tank_id, d, t, m_obs, m_temp, m_d15, comp1, comp2, comp3, comp4, mix_dens, chalan_dens, dens_diff, pre_dip, pre_stock, post_dens, receipt_kl, chalan_no, user_id, by_name)
     values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

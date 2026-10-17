@@ -693,11 +693,16 @@ th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}td.r,
 .empty{padding:28px 10px;text-align:center;color:var(--mute)}
 .wrap.wide{max-width:1320px}
 #sheet.wide-sheet{max-width:720px}
+.print-only{display:none}
 @media print{
   @page{size:landscape;margin:8mm}
-  .noprint,button{display:none!important}
-  body{background:#fff;color:#000}
-  .wrap.wide{max-width:100%!important;padding:0!important}
+  .noprint,button,#app-sidebar,.app-sidebar,.mobile-top-bar,.top-tab-strip,.sidebar-overlay,.btns{display:none!important}
+  body{background:#fff!important;color:#000!important}
+  .wrap, .wrap.wide{max-width:100%!important;margin:0!important;padding:0!important;width:100%!important}
+  .tbl{overflow:visible!important}
+  .tbl table{width:100%!important;min-width:100%!important;border-collapse:collapse}
+  .tbl th, .tbl td{border:1px solid #ccc!important;padding:4px 6px!important;font-size:10px!important}
+  .print-only{display:block!important}
 }
 #bdg{display:none;position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;background:var(--due);color:#fff;padding:8px 12px;font-size:14px;z-index:9;text-align:center}
 
@@ -772,7 +777,7 @@ function inr(n){return "₹"+Math.round(n).toLocaleString("en-IN")}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function today(){return new Date().toISOString().slice(0,10)}
 function find(id){return S.c.filter(function(c){return c.id==id})[0]}
-function render(){if(tab=="inv")return renderInv();if(tab=="stock")return renderStock();if(tab=="sup")return renderSup();if(tab=="book")return renderBook();if(tab=="rep")return renderRep();if(tab=="bak")return renderBak();if(tab=="team")return renderTeam();if(tab=="credit")return renderCredit();if(tab=="duty")return renderDutyTab();if(tab=="tanks")return renderTanks();if(tab=="wdip")return loadDip();if(tab=="pay")return renderSalary();if(tab=="setup")return renderSetup();if(tab=="veh")return renderVeh();if(tab=="short")return renderShort();if(tab=="mypay")return loadMyPay();if(tab=="wduty")return loadW();var h="";
+function render(){if(tab=="cashflow")return renderCashflow();if(tab=="inv")return renderInv();if(tab=="stock")return renderStock();if(tab=="sup")return renderSup();if(tab=="book")return renderBook();if(tab=="rep")return renderRep();if(tab=="bak")return renderBak();if(tab=="team")return renderTeam();if(tab=="credit")return renderCredit();if(tab=="duty")return renderDutyTab();if(tab=="tanks")return renderTanks();if(tab=="wdip")return loadDip();if(tab=="pay")return renderSalary();if(tab=="setup")return renderSetup();if(tab=="veh")return renderVeh();if(tab=="short")return renderShort();if(tab=="mypay")return loadMyPay();if(tab=="wduty")return loadW();var h="";
 if(!view){var tot=S.c.reduce(function(s,c){return s+due(c)},0),q=(document.getElementById("q")||{}).value||"";
 h+=nav()+pendHtml()+'<h1>Total credit outstanding</h1><div class="total">'+inr(tot)+'</div><div class="row"><input id="q" placeholder="Search name or vehicle" value="'+esc(q)+'" oninput="render();var i=document.getElementById(\'q\');i.focus();i.setSelectionRange(99,99)"><button onclick="custForm()">Add customer</button></div><button class="ghost" style="width:100%;margin-top:8px" onclick="bulkForm()">Send reminders to everyone with dues</button><button class="ghost" style="width:100%;margin-top:8px" onclick="renderVeh()">Vehicle-wise credit report</button><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" style="width:auto;margin:0" '+(onlyDue?'checked':'')+' onchange="onlyDue=this.checked;render()">Only customers with dues</label>';
 var l=S.c.filter(function(c){var t=(c.name+c.veh.join(" ")).toLowerCase();return t.indexOf(q.toLowerCase())>-1&&(!onlyDue||due(c)>0)});
@@ -831,7 +836,7 @@ function nav(){
   renderSidebar();
   var bizName = (ME && ME.pump_name) ? ME.pump_name : ((S && S.biz && S.biz.name) ? S.biz.name : "Petrol Pump");
   var T=[["ledger","Ledger"],["inv","Invoices"],["stock","Stock"],["sup","Suppliers"],["book","Book"],["rep","Reports"],["bak","Backup"]];
-  if(SRV)T.splice(1,0,["duty","Duty"],["tanks","Tanks"]);
+  if(SRV)T.splice(1,0,["duty","Duty"],["cashflow","Cash Flow Register"],["tanks","Tanks"]);
   if(SRV&&ME&&ME.role=="owner")T.push(["pay","Salary"],["setup","Pump setup"]);
   if(SRV&&ME&&(ME.role=="owner"||ME.role=="manager"))T.push(["team","Team"]);
 
@@ -946,6 +951,7 @@ S.bk.forEach(function(b){if(b.t=="xfer"){r.push({d:b.d,a:b.acct,m:-b.a,n:b.dep?"
 return r.sort(function(p,q){return p.d<q.d?1:-1})}
 function renderBook0(){var R=bkRows(),h=nav(),tot=0,B={};
 ACC.forEach(function(a){B[a]=(S.ob[a]||0)+R.filter(function(x){return x.a==a}).reduce(function(s,x){return s+x.m},0);tot+=B[a]});
+h+='<div style="display:flex;gap:8px;margin-bottom:14px;background:var(--card);padding:12px 14px;border-radius:10px;border:1px solid var(--line);align-items:center;justify-content:space-between;flex-wrap:wrap"><div><b style="color:var(--ink);font-size:14px">6 AM Shift Cash Flow Engine</b><div class="sub" style="margin-top:2px">Track 6 AM opening cash, morning/evening/night shifts, bank deposits &amp; next day rollover</div></div><button onclick="tab=\'cashflow\';render()">Open 6 AM Cash Flow &rarr;</button></div>';
 h+='<h1>Money in hand, all accounts</h1><div class="total" style="color:var(--ink)">'+inr(tot)+'</div><div class="row" style="gap:6px">'+ACC.map(function(a){return '<div class="cust" style="margin:0;padding:8px;cursor:default;text-align:center"><div class="sub">'+ACN[a]+'</div><b style="color:'+(B[a]<0?'var(--due)':'var(--ink)')+'">'+inr(B[a])+'</b></div>'}).join("")+'</div>'+depHtml()+'<div class="btns"><button onclick="bkForm(\'out\')">Add expense</button><button onclick="bkForm(\'in\')">Add income</button><button class="ghost" onclick="depForm()">Bank deposit</button><button class="ghost" onclick="bkForm(\'xfer\')">Transfer</button><button class="ghost" onclick="obForm()">Opening balances</button></div><div class="row" style="gap:6px;margin-bottom:10px">'+["all"].concat(ACC).map(function(a){return '<button style="padding:8px 4px;font-size:14px" class="'+(bf==a?'':'ghost')+'" onclick="bf=\''+a+'\';renderBook()">'+(a=="all"?"All":ACN[a])+'</button>'}).join("")+'</div><div class="tbl"><table><tr><th>Date</th><th>Detail</th><th>Account</th><th class="r">Amount</th><th></th></tr>';
 var L=R.filter(function(x){return bf=="all"||x.a==bf});
 L.forEach(function(x){h+='<tr><td>'+x.d.slice(5)+'</td><td>'+esc(x.n)+'</td><td>'+ACN[x.a]+'</td><td class="r '+(x.m>=0?'pay':'sale')+'">'+(x.m>=0?'+':'\u2212')+inr(Math.abs(x.m))+'</td><td>'+(x.id?'<button class="ghost" style="padding:5px 8px" onclick="delBk('+x.id+')">Delete</button>':'')+'</td></tr>'});
@@ -1420,6 +1426,7 @@ function renderSidebar() {
     navItems = [
       { id: "ledger", label: "Ledger", icon: "📒", action: "tab='ledger';view=null;render()" },
       { id: "duty", label: "Duty & Nozzles", icon: "⛽", action: "tab='duty';render()" },
+      { id: "cashflow", label: "Cash Flow Register", icon: "💵", action: "tab='cashflow';render()" },
       { id: "tanks", label: "Tanks & Stock", icon: "🛢️", action: "tab='tanks';render()" },
       { id: "inv", label: "Invoices", icon: "🧾", action: "tab='inv';view=null;iv=null;dr=null;render()" },
       { id: "stock", label: "Stock & Lubes", icon: "📦", action: "tab='stock';render()" },
@@ -1566,7 +1573,53 @@ function catDel(i){var l=cats().slice();l.splice(i,1);if(!l.length)l=["Other"];S
 function modeTog(i){var l=allModes().map(function(m){return Object.assign({},m)});if(l[i].key=="cash")return;l[i].active=l[i].active===false;S.paymodes=l;save();renderSetup()}
 function modeAdd(){var nm=v("nm");if(!nm)return er("Enter a name.");var l=allModes().map(function(m){return Object.assign({},m)});if(l.some(function(m){return m.name.toLowerCase()==nm.toLowerCase()}))return er("That mode already exists.");l.push({key:"m"+Date.now(),name:nm,active:true});S.paymodes=l;save();renderSetup()}
 function custTog(id){var c=find(id);c.active=c.active===false;save();renderSetup()}
-var TK=null, DIP_NOTES={}, DENS_FILTER={tank_id:""};
+var TK = null, DIP_NOTES = {}, DENS_FILTER = { tank_id: "" };
+var TANK_VIEW = "stock"; // "stock" | "dens" | "overview"
+var TANK_PRODUCT = ""; // Fuel name (e.g. "Petrol (MS)", "Diesel (HSD)")
+var TANK_MONTH = today().slice(0, 7);
+var TANK_FROM = "";
+var TANK_TO = "";
+
+function setTankMonth(mStr) {
+  if (!mStr || !/^\d{4}-\d{2}$/.test(mStr)) mStr = today().slice(0, 7);
+  TANK_MONTH = mStr;
+  var parts = TANK_MONTH.split('-');
+  var y = parseInt(parts[0], 10);
+  var m = parseInt(parts[1], 10);
+  var lastDay = new Date(y, m, 0).getDate();
+  TANK_FROM = TANK_MONTH + "-01";
+  TANK_TO = TANK_MONTH + "-" + (lastDay < 10 ? "0" + lastDay : "" + lastDay);
+}
+
+function prevTankMonth() {
+  if (!TANK_MONTH) TANK_MONTH = today().slice(0, 7);
+  var parts = TANK_MONTH.split('-');
+  var y = parseInt(parts[0], 10);
+  var m = parseInt(parts[1], 10) - 1;
+  if (m < 1) { m = 12; y--; }
+  setTankMonth(y + "-" + (m < 10 ? "0" + m : "" + m));
+  renderTanks();
+}
+
+function nextTankMonth() {
+  if (!TANK_MONTH) TANK_MONTH = today().slice(0, 7);
+  var parts = TANK_MONTH.split('-');
+  var y = parseInt(parts[0], 10);
+  var m = parseInt(parts[1], 10) + 1;
+  if (m > 12) { m = 1; y++; }
+  setTankMonth(y + "-" + (m < 10 ? "0" + m : "" + m));
+  renderTanks();
+}
+
+function fmtMonthYear(mStr) {
+  if (!mStr) return "";
+  var parts = mStr.split('-');
+  if (parts.length < 2) return mStr;
+  var dt = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, 1);
+  return dt.toLocaleString("en-IN", { month: "long", year: "numeric" });
+}
+
+
 function fld(v, dec) {
   if (v == null || v === "" || isNaN(+v)) return "";
   var n = +v;
@@ -1581,6 +1634,25 @@ function calcD15(obs, temp) {
 }
 function lt(n){return (Math.round(n*10)/10).toLocaleString("en-IN")+" L"}
 function tdate(t){return new Date(t*1000).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}
+function getDatesInRange(fromStr, toStr) {
+  var dates = [];
+  if (!fromStr || !toStr) return dates;
+  var d = fromStr;
+  var count = 0;
+  while (d <= toStr && count < 366) {
+    dates.push(d);
+    var dt = new Date(d + "T12:00:00Z");
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    d = dt.toISOString().slice(0, 10);
+    count++;
+  }
+  return dates;
+}
+function fmtDateDMY(dStr) {
+  if (!dStr) return "";
+  var p = dStr.split('-');
+  return p.length === 3 ? (parseInt(p[2], 10) + '/' + parseInt(p[1], 10) + '/' + p[0]) : dStr;
+}
 function toast(m){badge(m);setTimeout(function(){badge("")},4000)}
 function getFuelRate(f, t) {
   var d = t ? new Date(t * 1000 - 216e5).toLocaleDateString("en-CA") : bizToday();
@@ -1597,134 +1669,422 @@ function renderTanks() {
   var A = document.getElementById("app");
   var wrap = document.querySelector(".wrap");
   if (wrap) wrap.classList.add("wide");
+
+  if (TANK_VIEW === "all" || !TANK_VIEW) TANK_VIEW = "stock";
+
+  if (!TANK_MONTH) TANK_MONTH = today().slice(0, 7);
+  setTankMonth(TANK_MONTH);
+
   Promise.all([api("GET", "/api/stock-check"), api("GET", "/api/density-register")]).then(function(RR) {
     var T = RR[0], DREG = RR[1];
     if (tab != "tanks") return;
-    var h = nav() +
-      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:8px">' +
-        '<div><h1 style="font-size:22px;font-weight:800;color:var(--ink);letter-spacing:-0.5px">Fuel Tanks & Stock Reconciliation</h1><div class="sub">Monitor real-time inventory, meter dispensing, and actual dip depletion</div></div>' +
-        '<div class="btns" style="margin:0"><button onclick="densRegisterForm()">Record density check</button><button onclick="dipForm()">Add dip reading</button><button onclick="delivForm()">Fuel delivery</button><button class="ghost" onclick="tankForm()">Tanks setup</button></div>' +
-      '</div>';
-    if (!T.length) h += '<div class="empty">No tanks yet. Tap Tanks setup to add your tanks.</div>';
-    T.forEach(function(t) {
-      var pc = t.capacity && t.book != null ? Math.max(0, Math.min(100, t.book / t.capacity * 100)) : 0;
-      h += '<div class="cust" style="cursor:default;margin-top:10px">' +
-        '<div class="row"><b>' + esc(t.name) + ' \u00b7 ' + esc(t.fuel) + '</b><span class="amt" style="flex:none">' + (t.book != null ? lt(t.book) : 'No dip yet') + '</span></div>' +
-        '<div class="sub">' + (t.last ? 'Last recorded dip: <b>' + lt(t.last.litres) + '</b>' + (t.last.dip != null ? ' (' + t.last.dip + ' cm)' : '') + ' on ' + tdate(t.last.t) + (t.last.by ? ' by ' + esc(t.last.by) : '') : 'Add a dip reading to start tracking stock') + '</div>' +
-        (t.capacity && t.book != null ? '<div class="bar"><i style="width:' + pc + '%"></i></div><div class="sub" style="margin-top:4px">' + Math.round(pc) + '% of ' + lt(t.capacity) + ' capacity (current calculated book stock)</div>' : '') +
-      '</div>';
-    });
 
-    var any = false;
-    T.forEach(function(t) {
-      if (!t.checks || !t.checks.length) {
-        h += '<div class="cust" style="cursor:default;margin-top:16px;background:var(--card);border:1px dashed var(--line);padding:14px 16px">' +
-          '<div class="row"><b>Tanks Stock Check: ' + esc(t.name) + ' (' + esc(t.fuel) + ')</b></div>' +
-          '<div class="sub" style="margin-top:4px">' + (t.last ? '1 dip reading recorded (' + lt(t.last.litres) + '). Record the next dip reading (after shift or at day start) to generate the stock check reconciliation.' : 'No dip readings yet for this tank. Tap "Add dip reading" above to begin stock checks.') + '</div>' +
-        '</div>';
-        return;
-      }
-      any = true;
-      h += '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin:28px 0 10px;flex-wrap:wrap;gap:10px">' +
+    var tanksList = (DREG && DREG.tanks && DREG.tanks.length) ? DREG.tanks : ((T && T.length) ? T : (S.tanks || []));
+
+    // Determine all active fuel products
+    var allProds = fuelNames();
+    var productSet = {};
+    (allProds || []).forEach(function(f) { productSet[f] = true; });
+    (tanksList || []).forEach(function(tk) { if (tk.fuel) productSet[tk.fuel] = true; });
+    (DREG && DREG.rows ? DREG.rows : []).forEach(function(r) { if (r.fuel) productSet[r.fuel] = true; });
+    var prodList = Object.keys(productSet);
+    if (!prodList.length) prodList = ["Petrol (MS)", "Diesel (HSD)"];
+
+    // Default to the first product if none selected or invalid
+    if (!TANK_PRODUCT || prodList.indexOf(TANK_PRODUCT) < 0) {
+      TANK_PRODUCT = prodList[0];
+    }
+
+    var h = nav();
+
+    // Print Header
+    h += '<div class="print-only" style="margin-bottom:14px;border-bottom:2px solid #000;padding-bottom:6px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start">' +
         '<div>' +
-          '<h1 style="margin:0;color:var(--ink);font-size:18px;font-weight:800">Tanks Stock Check: ' + esc(t.name) + ' &middot; <span style="font-weight:600;color:var(--mute)">' + esc(t.fuel) + '</span></h1>' +
-          '<div class="sub" style="margin-top:3px">Detailed audit of meter sales vs physical tank depletion</div>' +
+          '<h1 style="font-size:18px;margin:0;font-weight:800;color:#000">' + esc((S.meta && S.meta.pump_name) || (ME && ME.name) || "Petroleum Retail Outlet") + '</h1>' +
+          '<div style="font-size:13px;font-weight:700;margin-top:2px;color:#333">' +
+            (TANK_VIEW === 'dens' ? 'Daily Density Register (Statutory Standard)' : (TANK_VIEW === 'overview' ? 'Tank Levels & Deliveries' : 'Tanks Stock Check Register')) +
+            ' &mdash; Product: ' + esc(TANK_PRODUCT) +
+          '</div>' +
         '</div>' +
-        '<div style="font-size:11.5px;color:var(--mute);background:var(--card);padding:6px 12px;border-radius:8px;border:1px solid var(--line);font-family:monospace;line-height:1.4">' +
-          '<b>Total Stock</b> = Opening + Receipts &bull; <span style="color:var(--btn);font-weight:700">Net Sales</span> = Meter &minus; Test &bull; <span style="color:var(--ok);font-weight:700">Sales by Dip</span> = Total Stock &minus; Tomorrow Opening &bull; <b>Daily Variations</b> = Net Meter &minus; Dip &bull; <b>Cumulative</b> = Monthly Running Totals' +
+        '<div style="text-align:right;font-size:11px;color:#333">' +
+          '<div><b>Register Month:</b> ' + esc(fmtMonthYear(TANK_MONTH)) + ' (' + esc(TANK_FROM) + ' to ' + esc(TANK_TO) + ')</div>' +
+          '<div><b>Generated:</b> ' + new Date().toLocaleString("en-IN") + '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="tbl" style="margin-bottom:20px"><table style="min-width:1180px">' +
-        '<thead>' +
-          '<tr style="background:rgba(0,0,0,0.02)">' +
-            '<th style="white-space:nowrap;padding:10px">Dip Period / Time</th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px">Opening Stock<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Dip Reading</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px">Receipts<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Deliveries</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(0,0,0,0.02)">Total Stock<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Opening + Receipts</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px">Sales by Meter<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Gross Meter</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px">Pump Test<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Testing</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(37,99,235,0.08);color:var(--ink)">Net Sales by Meter<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Meter &minus; Test</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(37,99,235,0.04);color:var(--ink)">Cumulative Sale<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Month Running Total</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(16,185,129,0.08);color:var(--ink)">Sales by Dip<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Total Stock &minus; Next Dip</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px;font-weight:800">Daily Variations<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Meter &minus; Dip</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px;font-weight:800;background:rgba(0,0,0,0.03)">Cumulative Variation<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Month Running Diff</span></th>' +
-            '<th class="r" style="white-space:nowrap;padding:10px">Remarks<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Product Rate</span></th>' +
-            '<th style="text-align:center;width:65px;padding:10px">Action</th>' +
-          '</tr>' +
-        '</thead>' +
-        '<tbody>';
+    '</div>';
 
-      var byMonthSales = {}, byMonthVar = {};
-      var ascChecks = t.checks.slice().sort(function(a, b) { return a.to - b.to; });
-      ascChecks.forEach(function(c) {
-        var mKey = new Date(c.to * 1000 - 216e5).toLocaleDateString("en-CA").slice(0, 7);
-        var nSales = (c.net_meter_sales != null ? c.net_meter_sales : (c.sold || 0));
-        var totStock = c.total_stock != null ? c.total_stock : Math.round(((c.opening || 0) + (c.received || 0)) * 100) / 100;
-        var dipSales = (c.sales_by_dip != null ? c.sales_by_dip : Math.round((totStock - (c.actual || 0)) * 100) / 100);
-        var diff = (c.diff != null ? c.diff : (nSales - dipSales));
-        byMonthSales[mKey] = Math.round(((byMonthSales[mKey] || 0) + nSales) * 100) / 100;
-        byMonthVar[mKey] = Math.round(((byMonthVar[mKey] || 0) + diff) * 100) / 100;
-        if (c.cumulative_sales == null) c.cumulative_sales = byMonthSales[mKey];
-        if (c.cumulative_variation == null) c.cumulative_variation = byMonthVar[mKey];
-      });
+    // Page Header & Action Buttons
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:8px">' +
+      '<div>' +
+        '<h1 style="font-size:22px;font-weight:800;color:var(--ink);letter-spacing:-0.5px;margin:0">Tanks Stock Check & Daily Density Register</h1>' +
+        '<div class="sub" style="margin-top:3px">Statutory stock audit, meter vs dip variation, and daily 15&deg;C density decantation register</div>' +
+      '</div>' +
+      '<div class="btns noprint" style="margin:0">' +
+        '<button onclick="morningDensityForm()">+ Morning Density</button>' +
+        '<button onclick="tankerDecantForm()">+ Tanker Decantation</button>' +
+        '<button onclick="dipForm()">+ Add Dip Reading</button>' +
+        '<button onclick="delivForm()">+ Fuel Delivery</button>' +
+        '<button class="ghost" onclick="tankForm()">Tanks Setup</button>' +
+        '<button class="ghost" onclick="window.print()" style="display:inline-flex;align-items:center;gap:5px">🖨️ Print Register</button>' +
+      '</div>' +
+    '</div>';
 
-      t.checks.forEach(function(c) {
-        DIP_NOTES[c.id] = c.note || "";
-        var nSales = (c.net_meter_sales != null ? c.net_meter_sales : (c.sold || 0));
-        var gSales = (c.meter_sales != null ? c.meter_sales : (nSales + (c.pump_test || 0)));
-        var pTest = (c.pump_test != null ? c.pump_test : 0);
-        var totStock = c.total_stock != null ? c.total_stock : Math.round(((c.opening || 0) + (c.received || 0)) * 100) / 100;
-        var dipSales = (c.sales_by_dip != null ? c.sales_by_dip : Math.round((totStock - (c.actual || 0)) * 100) / 100);
-        var diff = (c.diff != null ? c.diff : (nSales - dipSales));
-        var prRate = c.rate != null ? c.rate : getFuelRate(t.fuel, c.to);
+    // View Tabs (Tanks Stock Check, Daily Density Register, Tank Levels & Deliveries)
+    h += '<div class="noprint" style="display:flex;gap:8px;margin:12px 0 10px;border-bottom:1px solid var(--line);padding-bottom:10px;flex-wrap:wrap;align-items:center">' +
+      '<button class="' + (TANK_VIEW === 'stock' ? '' : 'ghost') + '" onclick="TANK_VIEW=\'stock\';renderTanks()" style="font-size:12.5px;padding:6px 14px;border-radius:20px;font-weight:700">⛽ Tanks Stock Check</button>' +
+      '<button class="' + (TANK_VIEW === 'dens' ? '' : 'ghost') + '" onclick="TANK_VIEW=\'dens\';renderTanks()" style="font-size:12.5px;padding:6px 14px;border-radius:20px;font-weight:700">🧪 Daily Density Register</button>' +
+      '<button class="' + (TANK_VIEW === 'overview' ? '' : 'ghost') + '" onclick="TANK_VIEW=\'overview\';renderTanks()" style="font-size:12.5px;padding:6px 14px;border-radius:20px;font-weight:700">🛢️ Tank Levels & Deliveries</button>' +
+    '</div>';
 
-        var cumSales = c.cumulative_sales != null ? c.cumulative_sales : 0;
-        var cumVar = c.cumulative_variation != null ? c.cumulative_variation : 0;
+    // Product Pills Bar (Quick Product-Wise Switching - specific products only)
+    h += '<div class="noprint" style="display:flex;align-items:center;gap:6px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px;flex-wrap:wrap">' +
+      '<span style="font-size:12px;font-weight:700;color:var(--mute);margin-right:2px;white-space:nowrap">Product:</span>' +
+      prodList.map(function(pn) {
+        var icon = (pn.toLowerCase().indexOf('petrol') >= 0 || pn.toLowerCase().indexOf('ms') >= 0) ? '⛽' : '🛢️';
+        return '<button class="' + (TANK_PRODUCT === pn ? '' : 'ghost') + '" onclick="TANK_PRODUCT=\'' + esc(pn) + '\';DENS_FILTER.tank_id=\'\';renderTanks()" style="font-size:12px;padding:5px 14px;border-radius:16px;font-weight:700">' + icon + ' ' + esc(pn) + '</button>';
+      }).join('') +
+    '</div>';
 
-        var bad = Math.abs(diff) > Math.max(5, (gSales || 0) * 0.005);
-        var diffSign = diff > 0 ? '+' : (diff < 0 ? '\u2212' : '');
-        var diffAbs = Math.abs(diff);
+    // Month View Switcher Toolbar (Prev Month, Month Selector / Display, Next Month, and Print Register)
+    h += '<div class="noprint" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;background:var(--card);padding:10px 16px;border-radius:10px;border:1px solid var(--line);flex-wrap:wrap">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<button class="ghost" style="padding:7px 14px;font-weight:700;display:inline-flex;align-items:center;gap:6px" onclick="prevTankMonth()" title="Previous month">◀ Prev Month</button>' +
+        '<div style="display:inline-flex;align-items:center;gap:8px;background:rgba(37,99,235,0.06);padding:5px 14px;border-radius:8px;border:1px solid rgba(37,99,235,0.2)">' +
+          '<span style="font-size:15px">📅</span>' +
+          '<span style="font-weight:800;font-size:15px;color:var(--ink)">' + esc(fmtMonthYear(TANK_MONTH)) + '</span>' +
+          '<input type="month" value="' + TANK_MONTH + '" onchange="setTankMonth(this.value);renderTanks()" style="font-size:13px;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;margin-left:4px" title="Jump to month">' +
+        '</div>' +
+        '<button class="ghost" style="padding:7px 14px;font-weight:700;display:inline-flex;align-items:center;gap:6px" onclick="nextTankMonth()" title="Next month">Next Month ▶</button>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:12px">' +
+        '<span class="sub" style="font-size:12px;font-variant-numeric:tabular-nums">' + esc(TANK_FROM) + ' &ndash; ' + esc(TANK_TO) + '</span>' +
+        '<button class="ghost" style="padding:7px 14px;display:inline-flex;align-items:center;gap:6px;font-weight:700" onclick="window.print()">🖨️ Print Register</button>' +
+      '</div>' +
+    '</div>';
 
-        var badCum = Math.abs(cumVar) > Math.max(10, (cumSales || 0) * 0.005);
-        var cumSign = cumVar > 0 ? '+' : (cumVar < 0 ? '\u2212' : '');
-        var cumAbs = Math.abs(cumVar);
+    if (!T.length) h += '<div class="empty">No tanks yet. Tap Tanks setup to add your tanks.</div>';
 
-        h += '<tr>' +
-          '<td style="vertical-align:middle;padding:10px"><span style="font-weight:700;color:var(--ink)">' + tdate(c.to) + '</span><div class="sub" style="font-size:11px;margin-top:2px">' + (c.from ? 'from ' + tdate(c.from) : '') + (c.by ? ' &bull; ' + esc(c.by) : '') + '</div></td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums"><span style="font-weight:700">' + lt(c.opening) + '</span>' + (c.opening_dip != null ? '<div class="sub" style="font-size:11px;color:var(--mute)">' + c.opening_dip + ' cm</div>' : '') + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (c.received > 0 ? '<span style="color:var(--ok);font-weight:700">+' + lt(c.received) + '</span>' : '<span style="color:var(--mute)">&mdash;</span>') + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(0,0,0,0.015);font-weight:700">' + lt(totStock) + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + lt(gSales) + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (pTest > 0 ? '<span style="color:var(--mute)">' + lt(pTest) + '</span>' : '<span style="color:var(--mute)">0.0 L</span>') + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(37,99,235,0.06);font-weight:800;color:var(--ink)">' + lt(nSales) + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(37,99,235,0.03);font-weight:700;color:var(--ink)">' + lt(cumSales) + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(16,185,129,0.06);font-weight:800;color:var(--ink)">' + lt(dipSales) + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:800;font-size:15px;color:' + (bad ? 'var(--due)' : 'var(--ok)') + '">' + (diff == 0 ? '0.0 L' : diffSign + lt(diffAbs)) + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:800;font-size:14px;background:rgba(0,0,0,0.02);color:' + (badCum ? 'var(--due)' : 'var(--ok)') + '">' + (cumVar == 0 ? '0.0 L' : cumSign + lt(cumAbs)) + '</td>' +
-          '<td class="r" style="vertical-align:middle;padding:10px;font-size:13px;font-variant-numeric:tabular-nums">' +
-            (prRate != null ? '<span style="font-weight:700;color:var(--ink);background:rgba(37,99,235,0.08);padding:2px 8px;border-radius:4px;font-size:12px;display:inline-block">' + m2(prRate) + '/L</span>' : '<span style="color:var(--mute);font-size:11.5px;font-style:italic">No rate set</span>') +
-          '</td>' +
-          '<td style="vertical-align:middle;text-align:center;padding:10px"><button class="ghost" style="padding:4px 8px;font-size:12px" title="Delete dip reading" onclick="delDip(' + c.id + ')">Delete</button></td>' +
-        '</tr>';
-      });
-      h += '</tbody></table></div>';
-    });
-
-    h += densHtml(DREG);
-    var dv = S.deliv.slice().reverse().slice(0, 10);
-    if (dv.length) {
-      h += '<h1 style="margin:24px 0 8px;color:var(--ink);font-size:17px;font-weight:800">Recent deliveries</h1>';
-      dv.forEach(function(d) {
-        var s = sfind(d.sup), tot = d.lines.reduce(function(a, l) { return a + l.litres; }, 0);
-        h += '<div class="cust" style="cursor:default"><div class="row"><b>' + d.d + ' \u00b7 ' + lt(tot) + '</b><span class="amt" style="flex:none">' + inr(d.amount) + '</span></div><div class="sub">' + esc(s ? s.name : "Supplier") + (d.billno ? ' \u00b7 Bill ' + esc(d.billno) : '') + ' \u00b7 ' + d.lines.map(function(l) { var k = S.tanks.filter(function(x) { return x.id == l.tank_id; })[0]; return esc(k ? k.name : "Tank") + ' ' + lt(l.litres) + (l.amount ? ' (' + inr(l.amount) + ')' : ''); }).join(", ") + '</div><div class="btns" style="margin:8px 0 0"><button class="ghost" style="padding:5px 10px" onclick="delDeliv(' + d.id + ')">Delete</button></div></div>';
+    // In Overview, show tank level cards
+    if (TANK_VIEW === 'overview') {
+      T.forEach(function(t) {
+        if (TANK_PRODUCT && t.fuel !== TANK_PRODUCT) return;
+        if (DENS_FILTER.tank_id && String(t.id) !== String(DENS_FILTER.tank_id)) return;
+        var pc = t.capacity && t.book != null ? Math.max(0, Math.min(100, t.book / t.capacity * 100)) : 0;
+        h += '<div class="cust" style="cursor:default;margin-top:10px">' +
+          '<div class="row"><b>' + esc(t.name) + ' \u00b7 ' + esc(t.fuel) + '</b><span class="amt" style="flex:none">' + (t.book != null ? lt(t.book) : 'No dip yet') + '</span></div>' +
+          '<div class="sub">' + (t.last ? 'Last recorded dip: <b>' + lt(t.last.litres) + '</b>' + (t.last.dip != null ? ' (' + t.last.dip + ' cm)' : '') + ' on ' + tdate(t.last.t) + (t.last.by ? ' by ' + esc(t.last.by) : '') : 'Add a dip reading to start tracking stock') + '</div>' +
+          (t.capacity && t.book != null ? '<div class="bar"><i style="width:' + pc + '%"></i></div><div class="sub" style="margin-top:4px">' + Math.round(pc) + '% of ' + lt(t.capacity) + ' capacity (current calculated book stock)</div>' : '') +
+        '</div>';
       });
     }
+
+    // In Stock, show Tanks Stock Check organized Product-wise
+    if (TANK_VIEW === 'stock') {
+      var prodsToRender = TANK_PRODUCT ? [TANK_PRODUCT] : prodList;
+      var anyStockRendered = false;
+
+      prodsToRender.forEach(function(fName) {
+        var pTanks = T.filter(function(t) { return t.fuel === fName; });
+        if (DENS_FILTER.tank_id) {
+          pTanks = pTanks.filter(function(t) { return String(t.id) === String(DENS_FILTER.tank_id); });
+        }
+        if (!pTanks.length) {
+          if (TANK_PRODUCT === fName) {
+            h += '<div class="empty" style="margin:20px 0;padding:24px">No tanks found for product <b>' + esc(fName) + '</b>. Configure tanks in Tanks Setup.</div>';
+          }
+          return;
+        }
+
+        anyStockRendered = true;
+        var fRate = getFuelRate(fName, null);
+        var fIcon = (fName.toLowerCase().indexOf('petrol') >= 0 || fName.toLowerCase().indexOf('ms') >= 0) ? '⛽' : '🛢️';
+
+        var prodTotGross = 0, prodTotTest = 0, prodTotNet = 0, prodTotRecv = 0, prodTotDip = 0, prodTotVar = 0, prodCheckCount = 0;
+
+        pTanks.forEach(function(t) {
+          var allChecks = t.checks || [];
+          var byMonthSales = {}, byMonthVar = {};
+          var ascChecks = allChecks.slice().sort(function(a, b) { return a.to - b.to; });
+          ascChecks.forEach(function(c) {
+            var mKey = (c.d ? c.d.slice(0, 7) : new Date(c.to * 1000 - 216e5).toLocaleDateString("en-CA").slice(0, 7));
+            var nSales = (c.net_meter_sales != null ? c.net_meter_sales : (c.sold || 0));
+            var totStock = c.total_stock != null ? c.total_stock : Math.round(((c.opening || 0) + (c.received || 0)) * 100) / 100;
+            var dipSales = (c.sales_by_dip != null ? c.sales_by_dip : Math.round((totStock - (c.actual || 0)) * 100) / 100);
+            var diff = (c.diff != null ? c.diff : (nSales - dipSales));
+            byMonthSales[mKey] = Math.round(((byMonthSales[mKey] || 0) + nSales) * 100) / 100;
+            byMonthVar[mKey] = Math.round(((byMonthVar[mKey] || 0) + diff) * 100) / 100;
+            if (c.cumulative_sales == null) c.cumulative_sales = byMonthSales[mKey];
+            if (c.cumulative_variation == null) c.cumulative_variation = byMonthVar[mKey];
+          });
+
+          // Filter checks by date range TANK_FROM and TANK_TO
+          var filteredChecks = allChecks.filter(function(c) {
+            var rowDate = c.d || (c.to ? new Date(c.to * 1000 - 216e5).toLocaleDateString("en-CA") : "");
+            if (TANK_FROM && rowDate < TANK_FROM) return false;
+            if (TANK_TO && rowDate > TANK_TO) return false;
+            return true;
+          });
+
+          var datesList = getDatesInRange(TANK_FROM, TANK_TO);
+          if (!datesList.length && filteredChecks.length) {
+            datesList = [today()];
+          }
+
+          var checksByDate = {};
+          filteredChecks.forEach(function(c) {
+            var cd = c.d || (c.to ? new Date(c.to * 1000 - 216e5).toLocaleDateString("en-CA") : "");
+            if (cd) { (checksByDate[cd] = checksByDate[cd] || []).push(c); }
+          });
+
+          h += '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin:18px 0 8px;flex-wrap:wrap;gap:10px">' +
+            '<div>' +
+              '<h3 style="margin:0;color:var(--ink);font-size:16px;font-weight:800">' + esc(t.name) + ' &middot; <span style="font-weight:600;color:var(--mute)">' + esc(t.fuel) + '</span>' + (t.capacity ? ' &middot; <span style="font-size:13px;font-weight:600;color:var(--mute)">' + lt(t.capacity) + '</span>' : '') + '</h3>' +
+              '<div class="sub" style="margin-top:2px">Audit of meter sales vs physical tank depletion &bull; ' + filteredChecks.length + ' of ' + datesList.length + ' days recorded' + (fRate ? ' &bull; Selling Rate: <b>' + m2(fRate) + '/L</b>' : '') + '</div>' +
+            '</div>' +
+            '<div class="noprint">' +
+              '<button class="ghost" style="font-size:12px;padding:5px 12px" onclick="dipForm(' + t.id + ')">+ Add Dip Reading</button>' +
+            '</div>' +
+          '</div>';
+
+          h += '<div class="tbl" style="margin-bottom:20px;overflow-x:auto"><table style="min-width:1180px">' +
+            '<thead>' +
+              '<tr style="background:rgba(0,0,0,0.02)">' +
+                '<th style="white-space:nowrap;padding:10px">Dip Period / Time</th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px">Opening Stock<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Dip Reading</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px">Receipts<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Deliveries</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(0,0,0,0.02)">Total Stock<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Opening + Receipts</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px">Sales by Meter<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Gross Meter</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px">Pump Test<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Testing</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(37,99,235,0.08);color:var(--ink)">Net Sales by Meter<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Meter &minus; Test</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(37,99,235,0.04);color:var(--ink)">Cumulative Sale<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Month Running Total</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(16,185,129,0.08);color:var(--ink)">Sales by Dip<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Total Stock &minus; Next Dip</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px;font-weight:800">Daily Variations<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Meter &minus; Dip</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px;font-weight:800;background:rgba(0,0,0,0.03)">Cumulative Variation<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Month Running Diff</span></th>' +
+                '<th class="r" style="white-space:nowrap;padding:10px">Remarks<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Product Rate</span></th>' +
+                '<th class="noprint" style="text-align:center;width:65px;padding:10px">Action</th>' +
+              '</tr>' +
+            '</thead>' +
+            '<tbody>';
+
+          var totGross = 0, totTest = 0, totNet = 0, totRecv = 0, totDipSales = 0, totVar = 0;
+          var renderedCheckIds = {};
+
+          datesList.forEach(function(dStr) {
+            var dayChecks = checksByDate[dStr];
+            if (dayChecks && dayChecks.length) {
+              dayChecks.forEach(function(c) {
+                renderedCheckIds[c.id] = true;
+                DIP_NOTES[c.id] = c.note || "";
+                var nSales = (c.net_meter_sales != null ? c.net_meter_sales : (c.sold || 0));
+                var gSales = (c.meter_sales != null ? c.meter_sales : (nSales + (c.pump_test || 0)));
+                var pTest = (c.pump_test != null ? c.pump_test : 0);
+                var totStock = c.total_stock != null ? c.total_stock : Math.round(((c.opening || 0) + (c.received || 0)) * 100) / 100;
+                var dipSales = (c.sales_by_dip != null ? c.sales_by_dip : Math.round((totStock - (c.actual || 0)) * 100) / 100);
+                var diff = (c.diff != null ? c.diff : (nSales - dipSales));
+                var prRate = c.rate != null ? c.rate : getFuelRate(t.fuel, c.to);
+
+                totGross += gSales;
+                totTest += pTest;
+                totNet += nSales;
+                totRecv += (c.received || 0);
+                totDipSales += dipSales;
+                totVar += diff;
+
+                prodTotGross += gSales;
+                prodTotTest += pTest;
+                prodTotNet += nSales;
+                prodTotRecv += (c.received || 0);
+                prodTotDip += dipSales;
+                prodTotVar += diff;
+                prodCheckCount++;
+
+                var cumSales = c.cumulative_sales != null ? c.cumulative_sales : 0;
+                var cumVar = c.cumulative_variation != null ? c.cumulative_variation : 0;
+
+                var bad = Math.abs(diff) > Math.max(5, (gSales || 0) * 0.005);
+                var diffSign = diff > 0 ? '+' : (diff < 0 ? '\u2212' : '');
+                var diffAbs = Math.abs(diff);
+
+                var badCum = Math.abs(cumVar) > Math.max(10, (cumSales || 0) * 0.005);
+                var cumSign = cumVar > 0 ? '+' : (cumVar < 0 ? '\u2212' : '');
+                var cumAbs = Math.abs(cumVar);
+
+                h += '<tr>' +
+                  '<td style="vertical-align:middle;padding:10px">' +
+                    '<span style="font-weight:700;color:var(--ink)">' + tdate(c.to) + '</span>' +
+                    '<div class="sub" style="font-size:11px;margin-top:2px">' + (c.from ? 'from ' + tdate(c.from) : '') + (c.by ? ' &bull; ' + esc(c.by) : '') + '</div>' +
+                  '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums"><span style="font-weight:700">' + lt(c.opening) + '</span>' + (c.opening_dip != null ? '<div class="sub" style="font-size:11px;color:var(--mute)">' + c.opening_dip + ' cm</div>' : '') + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (c.received > 0 ? '<span style="color:var(--ok);font-weight:700">+' + lt(c.received) + '</span>' : '<span style="color:var(--mute)">&mdash;</span>') + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(0,0,0,0.015);font-weight:700">' + lt(totStock) + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + lt(gSales) + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (pTest > 0 ? '<span style="color:var(--mute)">' + lt(pTest) + '</span>' : '<span style="color:var(--mute)">0.0 L</span>') + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(37,99,235,0.06);font-weight:800;color:var(--ink)">' + lt(nSales) + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(37,99,235,0.03);font-weight:700;color:var(--ink)">' + lt(cumSales) + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(16,185,129,0.06);font-weight:800;color:var(--ink)">' + lt(dipSales) + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:800;font-size:15px;color:' + (bad ? 'var(--due)' : 'var(--ok)') + '">' + (diff == 0 ? '0.0 L' : diffSign + lt(diffAbs)) + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:800;font-size:14px;background:rgba(0,0,0,0.02);color:' + (badCum ? 'var(--due)' : 'var(--ok)') + '">' + (cumVar == 0 ? '0.0 L' : cumSign + lt(cumAbs)) + '</td>' +
+                  '<td class="r" style="vertical-align:middle;padding:10px;font-size:13px;font-variant-numeric:tabular-nums">' +
+                    (prRate != null ? '<span style="font-weight:700;color:var(--ink);background:rgba(37,99,235,0.08);padding:2px 8px;border-radius:4px;font-size:12px;display:inline-block">' + m2(prRate) + '/L</span>' : '<span style="color:var(--mute);font-size:11.5px;font-style:italic">No rate set</span>') +
+                  '</td>' +
+                  '<td class="noprint" style="vertical-align:middle;text-align:center;padding:10px"><button class="ghost" style="padding:4px 8px;font-size:12px" title="Delete dip reading" onclick="delDip(' + c.id + ')">Delete</button></td>' +
+                '</tr>';
+              });
+            } else {
+              // Blank record row for dates with no dip recorded
+              h += '<tr style="opacity:0.75;background:rgba(0,0,0,0.01)">' +
+                '<td style="vertical-align:middle;padding:10px;white-space:nowrap">' +
+                  '<span style="font-weight:700;color:var(--ink)">' + fmtDateDMY(dStr) + '</span>' +
+                  '<div class="sub" style="font-size:11px;margin-top:2px;color:var(--mute)">Not recorded</div>' +
+                '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+                '<td class="noprint" style="vertical-align:middle;text-align:center;padding:10px">' +
+                  '<button class="ghost" style="padding:3px 8px;font-size:11px;color:var(--btn)" onclick="dipForm(' + t.id + ')">+ Add Dip</button>' +
+                '</td>' +
+              '</tr>';
+            }
+          });
+
+          // Any checks in filteredChecks not in datesList (edge case)
+          filteredChecks.forEach(function(c) {
+            if (renderedCheckIds[c.id]) return;
+            DIP_NOTES[c.id] = c.note || "";
+            var nSales = (c.net_meter_sales != null ? c.net_meter_sales : (c.sold || 0));
+            var gSales = (c.meter_sales != null ? c.meter_sales : (nSales + (c.pump_test || 0)));
+            var pTest = (c.pump_test != null ? c.pump_test : 0);
+            var totStock = c.total_stock != null ? c.total_stock : Math.round(((c.opening || 0) + (c.received || 0)) * 100) / 100;
+            var dipSales = (c.sales_by_dip != null ? c.sales_by_dip : Math.round((totStock - (c.actual || 0)) * 100) / 100);
+            var diff = (c.diff != null ? c.diff : (nSales - dipSales));
+            var prRate = c.rate != null ? c.rate : getFuelRate(t.fuel, c.to);
+
+            totGross += gSales;
+            totTest += pTest;
+            totNet += nSales;
+            totRecv += (c.received || 0);
+            totDipSales += dipSales;
+            totVar += diff;
+
+            prodTotGross += gSales;
+            prodTotTest += pTest;
+            prodTotNet += nSales;
+            prodTotRecv += (c.received || 0);
+            prodTotDip += dipSales;
+            prodTotVar += diff;
+            prodCheckCount++;
+
+            var cumSales = c.cumulative_sales != null ? c.cumulative_sales : 0;
+            var cumVar = c.cumulative_variation != null ? c.cumulative_variation : 0;
+            var bad = Math.abs(diff) > Math.max(5, (gSales || 0) * 0.005);
+            var diffSign = diff > 0 ? '+' : (diff < 0 ? '\u2212' : '');
+            var diffAbs = Math.abs(diff);
+            var badCum = Math.abs(cumVar) > Math.max(10, (cumSales || 0) * 0.005);
+            var cumSign = cumVar > 0 ? '+' : (cumVar < 0 ? '\u2212' : '');
+            var cumAbs = Math.abs(cumVar);
+
+            h += '<tr>' +
+              '<td style="vertical-align:middle;padding:10px">' +
+                '<span style="font-weight:700;color:var(--ink)">' + tdate(c.to) + '</span>' +
+                '<div class="sub" style="font-size:11px;margin-top:2px">' + (c.from ? 'from ' + tdate(c.from) : '') + (c.by ? ' &bull; ' + esc(c.by) : '') + '</div>' +
+              '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums"><span style="font-weight:700">' + lt(c.opening) + '</span>' + (c.opening_dip != null ? '<div class="sub" style="font-size:11px;color:var(--mute)">' + c.opening_dip + ' cm</div>' : '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (c.received > 0 ? '<span style="color:var(--ok);font-weight:700">+' + lt(c.received) + '</span>' : '<span style="color:var(--mute)">&mdash;</span>') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(0,0,0,0.015);font-weight:700">' + lt(totStock) + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + lt(gSales) + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (pTest > 0 ? '<span style="color:var(--mute)">' + lt(pTest) + '</span>' : '<span style="color:var(--mute)">0.0 L</span>') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(37,99,235,0.06);font-weight:800;color:var(--ink)">' + lt(nSales) + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(37,99,235,0.03);font-weight:700;color:var(--ink)">' + lt(cumSales) + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(16,185,129,0.06);font-weight:800;color:var(--ink)">' + lt(dipSales) + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:800;font-size:15px;color:' + (bad ? 'var(--due)' : 'var(--ok)') + '">' + (diff == 0 ? '0.0 L' : diffSign + lt(diffAbs)) + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:800;font-size:14px;background:rgba(0,0,0,0.02);color:' + (badCum ? 'var(--due)' : 'var(--ok)') + '">' + (cumVar == 0 ? '0.0 L' : cumSign + lt(cumAbs)) + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-size:13px;font-variant-numeric:tabular-nums">' +
+                (prRate != null ? '<span style="font-weight:700;color:var(--ink);background:rgba(37,99,235,0.08);padding:2px 8px;border-radius:4px;font-size:12px;display:inline-block">' + m2(prRate) + '/L</span>' : '<span style="color:var(--mute);font-size:11.5px;font-style:italic">No rate set</span>') +
+              '</td>' +
+              '<td class="noprint" style="vertical-align:middle;text-align:center;padding:10px"><button class="ghost" style="padding:4px 8px;font-size:12px" title="Delete dip reading" onclick="delDip(' + c.id + ')">Delete</button></td>' +
+            '</tr>';
+          });
+
+            // Tank summary totals footer
+            var totBad = Math.abs(totVar) > Math.max(5, (totGross || 0) * 0.005);
+            h += '<tfoot>' +
+              '<tr style="background:rgba(0,0,0,0.035);font-weight:800;border-top:2px solid var(--line)">' +
+                '<td style="padding:10px">' + esc(t.name) + ' Totals (' + filteredChecks.length + ' checks)</td>' +
+                '<td class="r" style="padding:10px">&mdash;</td>' +
+                '<td class="r" style="padding:10px;color:var(--ok)">' + (totRecv > 0 ? '+' + lt(totRecv) : '&mdash;') + '</td>' +
+                '<td class="r" style="padding:10px">&mdash;</td>' +
+                '<td class="r" style="padding:10px">' + lt(totGross) + '</td>' +
+                '<td class="r" style="padding:10px;color:var(--mute)">' + lt(totTest) + '</td>' +
+                '<td class="r" style="padding:10px;color:var(--ink);background:rgba(37,99,235,0.08)">' + lt(totNet) + '</td>' +
+                '<td class="r" style="padding:10px">&mdash;</td>' +
+                '<td class="r" style="padding:10px;color:var(--ink);background:rgba(16,185,129,0.08)">' + lt(totDipSales) + '</td>' +
+                '<td class="r" style="padding:10px;font-size:14px;color:' + (totBad ? 'var(--due)' : 'var(--ok)') + '">' + (totVar == 0 ? '0.0 L' : (totVar > 0 ? '+' : '\u2212') + lt(Math.abs(totVar))) + '</td>' +
+                '<td class="r" style="padding:10px">&mdash;</td>' +
+                '<td class="r" style="padding:10px">&mdash;</td>' +
+                '<td class="noprint" style="padding:10px">&mdash;</td>' +
+              '</tr>' +
+            '</tfoot>';
+
+          h += '</tbody></table></div>';
+        });
+
+        // If product has multiple tanks, show Consolidated Product Totals
+        if (pTanks.length > 1) {
+          var pBad = Math.abs(prodTotVar) > Math.max(5, (prodTotGross || 0) * 0.005);
+          h += '<div style="margin:-10px 0 24px;padding:12px 16px;background:rgba(37,99,235,0.04);border:1px solid rgba(37,99,235,0.15);border-radius:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
+            '<div>' +
+              '<b style="color:var(--ink);font-size:13.5px">' + fIcon + ' ' + esc(fName) + ' Consolidated Product Total:</b> ' +
+              '<span class="sub" style="font-size:12px"> Across ' + pTanks.length + ' tanks (' + prodCheckCount + ' checks)</span>' +
+            '</div>' +
+            '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px;font-variant-numeric:tabular-nums">' +
+              '<div>Receipts: <b style="color:var(--ok)">+' + lt(prodTotRecv) + '</b></div>' +
+              '<div>Gross: <b style="color:var(--ink)">' + lt(prodTotGross) + '</b></div>' +
+              '<div>Pump Test: <b style="color:var(--mute)">' + lt(prodTotTest) + '</b></div>' +
+              '<div>Net Sales: <b style="color:var(--ink);background:rgba(37,99,235,0.08);padding:2px 6px;border-radius:4px">' + lt(prodTotNet) + '</b></div>' +
+              '<div>Sales by Dip: <b style="color:var(--ink);background:rgba(16,185,129,0.08);padding:2px 6px;border-radius:4px">' + lt(prodTotDip) + '</b></div>' +
+              '<div>Net Variation: <b style="color:' + (pBad ? 'var(--due)' : 'var(--ok)') + '">' + (prodTotVar == 0 ? '0.0 L' : (prodTotVar > 0 ? '+' : '\u2212') + lt(Math.abs(prodTotVar))) + '</b></div>' +
+            '</div>' +
+          '</div>';
+        }
+      });
+
+      if (!anyStockRendered) {
+        h += '<div class="empty">No stock checks matching the selected product or date range.</div>';
+      }
+    }
+
+    // In Density, show Daily Density Register (Product-wise)
+    if (TANK_VIEW === 'dens') {
+      h += densHtml(DREG, prodList);
+    }
+
+    // In Overview, show Recent Deliveries
+    if (TANK_VIEW === 'overview') {
+      var dv = S.deliv.slice().reverse().slice(0, 10);
+      if (dv.length) {
+        h += '<h1 style="margin:24px 0 8px;color:var(--ink);font-size:17px;font-weight:800">Recent deliveries</h1>';
+        dv.forEach(function(d) {
+          var s = sfind(d.sup), tot = d.lines.reduce(function(a, l) { return a + l.litres; }, 0);
+          h += '<div class="cust" style="cursor:default"><div class="row"><b>' + d.d + ' \u00b7 ' + lt(tot) + '</b><span class="amt" style="flex:none">' + inr(d.amount) + '</span></div><div class="sub">' + esc(s ? s.name : "Supplier") + (d.billno ? ' \u00b7 Bill ' + esc(d.billno) : '') + ' \u00b7 ' + d.lines.map(function(l) { var k = S.tanks.filter(function(x) { return x.id == l.tank_id; })[0]; return esc(k ? k.name : "Tank") + ' ' + lt(l.litres) + (l.amount ? ' (' + inr(l.amount) + ')' : ''); }).join(", ") + '</div><div class="btns noprint" style="margin:8px 0 0"><button class="ghost" style="padding:5px 10px" onclick="delDeliv(' + d.id + ')">Delete</button></div></div>';
+        });
+      }
+    }
+
     A.innerHTML = h;
   }).catch(function(e) { badge(e.error || "Could not load tank stock."); });
 }
-function dipFields(tanks){return '<label>Tank<select id="t1"><option value="">Choose tank</option>'+tanks.map(function(t){return '<option value="'+t.id+'">'+esc(t.name)+' ('+esc(t.fuel)+')</option>'}).join("")+'</select></label><label>Litres (from the dip chart)<input id="t2" inputmode="decimal"></label><div class="sub" style="margin-top:8px">or</div><label>Dip reading (same unit as your dip chart)<input id="t3" inputmode="decimal"></label><div class="sub" style="margin-top:10px">Density check (optional)</div><div class="row"><label>Measured<input id="td1" inputmode="decimal" placeholder="0.745"></label><label>Temp \u00b0C<input id="td2" inputmode="decimal"></label><label>At 15 \u00b0C<input id="td3" inputmode="decimal" placeholder="0.748"></label></div><label>Note (optional)<input id="t4"></label><div class="err" id="er"></div>'}
+function dipFields(tanks, preTankId){return '<label>Tank<select id="t1"><option value="">Choose tank</option>'+tanks.map(function(t){return '<option value="'+t.id+'"'+(preTankId&&String(preTankId)===String(t.id)?' selected':'')+'>'+esc(t.name)+' ('+esc(t.fuel)+')</option>'}).join("")+'</select></label><label>Litres (from the dip chart)<input id="t2" inputmode="decimal"></label><div class="sub" style="margin-top:8px">or</div><label>Dip reading (same unit as your dip chart)<input id="t3" inputmode="decimal"></label><div class="sub" style="margin-top:10px">Density check (optional)</div><div class="row"><label>Measured<input id="td1" inputmode="decimal" placeholder="0.745"></label><label>Temp \u00b0C<input id="td2" inputmode="decimal"></label><label>At 15 \u00b0C<input id="td3" inputmode="decimal" placeholder="0.748"></label></div><label>Note (optional)<input id="t4"></label><div class="err" id="er"></div>'}
 function postDip(done){var b={tank_id:v("t1"),litres:v("t2"),dip:v("t3"),dens_obs:v("td1"),temp:v("td2"),d15:v("td3"),note:v("t4")};if(!b.tank_id)return er("Choose a tank.");if(!b.litres&&!b.dip)return er("Enter the litres or the dip reading.");api("POST","/api/dips",b).then(function(){done()}).catch(function(e){er(e.error||"Could not save. Check your connection.")})}
-function dipForm(){if(!S.tanks.length)return toast("Add your tanks first (Tanks setup).");openM('<h2>Dip reading</h2>'+dipFields(S.tanks)+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="close()">Cancel</button><button onclick="postDip(function(){close();renderTanks()})">Save reading</button></div>')}
+function dipForm(preTankId){if(!S.tanks.length)return toast("Add your tanks first (Tanks setup).");openM('<h2>Dip reading</h2>'+dipFields(S.tanks, preTankId)+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="close()">Cancel</button><button onclick="postDip(function(){close();renderTanks()})">Save reading</button></div>')}
 function delDip(id){ask("Delete this dip reading? The stock checks will be recalculated.",function(){api("DELETE","/api/dips/"+id).then(renderTanks).catch(function(e){badge(e.error||"Could not delete.")})})}
 function editRemark(id){var cur=DIP_NOTES[id]||"";openM('<h2>Stock check remark</h2><div class="sub">Add or update remark for this dip reading interval.</div><label>Remark / Note<input id="rem_val" value="'+esc(cur)+'" placeholder="e.g. Tanker delivery, calibration, temperature shift" maxlength="200"></label><div class="err" id="er"></div><div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveRemark('+id+')">Save remark</button></div>');setTimeout(function(){var el=document.getElementById("rem_val");if(el)el.focus()},100)}
 function saveRemark(id){var note=v("rem_val");api("PUT","/api/dips/"+id+"/note",{note:note}).then(function(){close();renderTanks()}).catch(function(e){er(e.error||"Could not save remark.")})}
@@ -1986,71 +2346,259 @@ function fuelNames(){return fprods().filter(function(p){return p.active!==false}
 function unitOf(f){var p=fprods().filter(function(x){return x.name==f})[0];return p&&p.unit||"L"}
 function dn(x){return x==null?'-':Number(x).toFixed(4)}
 
-function densHtml(DREG) {
+function densHtml(DREG, prodList) {
   var rows = (DREG && DREG.rows) ? DREG.rows : (Array.isArray(DREG) ? DREG : []);
   var tanks = (DREG && DREG.tanks) ? DREG.tanks : (S.tanks || []);
 
   if (DENS_FILTER.tank_id) {
     rows = rows.filter(function(r) { return String(r.tank_id) === String(DENS_FILTER.tank_id); });
   }
+  if (TANK_FROM) {
+    rows = rows.filter(function(r) { return !r.d || r.d >= TANK_FROM; });
+  }
+  if (TANK_TO) {
+    rows = rows.filter(function(r) { return !r.d || r.d <= TANK_TO; });
+  }
 
-  var h = '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin:28px 0 10px;flex-wrap:wrap;gap:10px">' +
-    '<div>' +
-      '<h1 style="margin:0;color:var(--ink);font-size:18px;font-weight:800">Daily Density Register (Statutory Standard)</h1>' +
-      '<div class="sub" style="margin-top:3px">Morning U/G tank density @ 15°C, tanker receipt compartment checks, and decantation audit</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-      '<div style="font-size:11.5px;color:var(--mute);background:var(--card);padding:6px 12px;border-radius:8px;border:1px solid var(--line);font-family:monospace;line-height:1.4">' +
-        '<b>Morning U/G Density</b> @ 15&deg;C &bull; <b>Mix Density</b> = Avg(I, II, III, IV) &bull; <b>Dif in Density</b> = Mix &minus; Challan (&le; 3.0 kg/m&sup3;) &bull; <b>100L Flush</b>' +
+  var prodsToRender = TANK_PRODUCT ? [TANK_PRODUCT] : (prodList && prodList.length ? prodList : fuelNames());
+  if (!prodsToRender.length) prodsToRender = ["Petrol (MS)", "Diesel (HSD)"];
+
+  var h = '';
+  var anyDensRendered = false;
+
+  prodsToRender.forEach(function(fName) {
+    var pTanks = tanks.filter(function(t) { return t.fuel === fName; });
+    if (DENS_FILTER.tank_id) {
+      pTanks = pTanks.filter(function(t) { return String(t.id) === String(DENS_FILTER.tank_id); });
+    }
+
+    var pRows = rows.filter(function(r) {
+      if (DENS_FILTER.tank_id && String(r.tank_id) !== String(DENS_FILTER.tank_id)) return false;
+      if (r.fuel) return r.fuel === fName;
+      var tk = tanks.filter(function(t) { return String(t.id) === String(r.tank_id); })[0];
+      return tk && tk.fuel === fName;
+    });
+
+    if (!pTanks.length && !pRows.length) {
+      if (TANK_PRODUCT === fName) {
+        h += '<div class="empty" style="margin:20px 0;padding:24px">No tanks or density records found for product <b>' + esc(fName) + '</b>. Configure tanks in Tanks Setup.</div>';
+      }
+      return;
+    }
+
+    anyDensRendered = true;
+    var fIcon = (fName.toLowerCase().indexOf('petrol') >= 0 || fName.toLowerCase().indexOf('ms') >= 0) ? '⛽' : '🛢️';
+    var stdRange = DENSD[fName] || (fName.toLowerCase().indexOf('diesel') >= 0 ? [0.82, 0.86] : [0.72, 0.775]);
+    var minDens = (stdRange[0] < 2 ? stdRange[0] * 1000 : stdRange[0]).toFixed(1);
+    var maxDens = (stdRange[1] < 2 ? stdRange[1] * 1000 : stdRange[1]).toFixed(1);
+
+    var m15Vals = pRows.map(function(r) {
+      return r.m_d15 ? (+r.m_d15 < 2 ? +r.m_d15 * 1000 : +r.m_d15) : null;
+    }).filter(function(v) { return v != null && !isNaN(v); });
+    var avgM15 = m15Vals.length ? (m15Vals.reduce(function(a, b){ return a + b; }, 0) / m15Vals.length).toFixed(1) : null;
+
+    var mixVals = pRows.map(function(r) {
+      return r.mix_dens ? (+r.mix_dens < 2 ? +r.mix_dens * 1000 : +r.mix_dens) : null;
+    }).filter(function(v) { return v != null && !isNaN(v); });
+    var avgMix = mixVals.length ? (mixVals.reduce(function(a, b){ return a + b; }, 0) / mixVals.length).toFixed(1) : null;
+
+    var chalVals = pRows.map(function(r) {
+      return r.chalan_dens ? (+r.chalan_dens < 2 ? +r.chalan_dens * 1000 : +r.chalan_dens) : null;
+    }).filter(function(v) { return v != null && !isNaN(v); });
+    var avgChal = chalVals.length ? (chalVals.reduce(function(a, b){ return a + b; }, 0) / chalVals.length).toFixed(1) : null;
+
+    var totDecantKL = pRows.reduce(function(acc, r) { return acc + (r.receipt_kl ? +r.receipt_kl : 0); }, 0);
+    var warnDiffs = pRows.filter(function(r) { return r.dens_diff != null && Math.abs(r.dens_diff) > 3.0; }).length;
+
+    // Product Section Banner
+    h += '<div style="margin:28px 0 12px;padding:12px 16px;background:var(--card);border-left:4px solid var(--theme-accent);border-radius:0 10px 10px 0;border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
+      '<div>' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span style="font-size:20px">' + fIcon + '</span>' +
+          '<h2 style="margin:0;font-size:18px;font-weight:800;color:var(--ink)">Product: ' + esc(fName) + ' &mdash; Daily Density Register</h2>' +
+          '<span style="background:rgba(37,99,235,0.08);color:var(--btn);font-size:11.5px;font-weight:700;padding:2px 10px;border-radius:12px;border:1px solid rgba(37,99,235,0.2)">Statutory 15&deg;C Range: ' + minDens + ' &ndash; ' + maxDens + ' kg/m&sup3;</span>' +
+          '<span style="background:var(--theme-accent-soft);color:var(--theme-accent);font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px">' + pTanks.length + ' Tank' + (pTanks.length === 1 ? '' : 's') + '</span>' +
+        '</div>' +
+        '<div class="sub" style="margin-top:3px">' +
+          (pTanks.length ? 'Assigned Tanks: ' + pTanks.map(function(t){ return '<b>' + esc(t.name) + '</b>'; }).join(', ') + ' &bull; ' : '') +
+          'Month: <b>' + esc(fmtMonthYear(TANK_MONTH)) + '</b> (' + esc(TANK_FROM) + ' to ' + esc(TANK_TO) + ') &bull; ' + pRows.length + ' check' + (pRows.length === 1 ? '' : 's') + ' recorded' +
+        '</div>' +
       '</div>' +
-      '<label style="font-size:12px;margin:0;display:flex;align-items:center;gap:6px">' +
-        '<span style="color:var(--mute)">Filter tank:</span>' +
-        '<select onchange="DENS_FILTER.tank_id=this.value;renderTanks()" style="font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)">' +
-          '<option value="">All tanks</option>' +
-          tanks.map(function(t) {
-            return '<option value="' + t.id + '"' + (String(DENS_FILTER.tank_id) === String(t.id) ? ' selected' : '') + '>' + esc(t.name) + ' (' + esc(t.fuel) + ')</option>';
-          }).join('') +
-        '</select>' +
-      '</label>' +
-      '<button onclick="densRegisterForm()" style="font-size:12px;padding:7px 12px">+ Record density check</button>' +
-    '</div>' +
-  '</div>';
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">' +
+        (avgM15 ? '<div style="background:rgba(37,99,235,0.06);padding:5px 10px;border-radius:6px">Avg Morning 15&deg;C: <b style="color:var(--ink)">' + avgM15 + ' kg/m&sup3;</b></div>' : '') +
+        (totDecantKL > 0 ? '<div style="background:rgba(16,185,129,0.06);padding:5px 10px;border-radius:6px">Total Decanted: <b style="color:var(--ok)">' + fld(totDecantKL) + ' KL</b></div>' : '') +
+        (pRows.length ? (warnDiffs === 0 ? '<div style="color:var(--ok);font-weight:700;display:flex;align-items:center;gap:4px">✓ Challan Diff &le; 3.0</div>' : '<div style="color:var(--due);font-weight:700">⚠ ' + warnDiffs + ' Challan Diff &gt; 3.0</div>') : '') +
+        '<button class="noprint ghost" style="padding:5px 10px;font-size:12px" onclick="densRegisterForm(' + (pTanks.length ? pTanks[0].id : '') + ')">+ Record Check</button>' +
+      '</div>' +
+    '</div>';
 
-  h += '<div class="tbl" style="margin-bottom:20px;overflow-x:auto">' +
-    '<table style="min-width:1240px">' +
-      '<thead>' +
-        '<tr style="background:rgba(0,0,0,0.02)">' +
-          '<th rowspan="2" style="white-space:nowrap;padding:10px;text-align:left;vertical-align:middle">Date / Tank</th>' +
-          '<th colspan="3" style="white-space:nowrap;padding:10px;text-align:center;background:rgba(37,99,235,0.04);color:var(--ink);font-weight:800">Morning Density at 15&deg;C U/G Tanks</th>' +
-          '<th colspan="4" style="white-space:nowrap;padding:10px;text-align:center;color:var(--ink);font-weight:800">Tank/Truck Receipt Density Compartment</th>' +
-          '<th rowspan="2" class="r" style="white-space:nowrap;padding:10px;text-align:right;vertical-align:middle;font-weight:800">Mix<br>Density</th>' +
-          '<th rowspan="2" class="r" style="white-space:nowrap;padding:10px;text-align:right;vertical-align:middle">Density @ 15&deg;C<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">As per challan</span></th>' +
-          '<th rowspan="2" class="r" style="white-space:nowrap;padding:10px;text-align:right;vertical-align:middle;font-weight:800">Dif in Density<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Mix &minus; Challan</span></th>' +
-          '<th colspan="2" style="white-space:nowrap;padding:10px;text-align:center;color:var(--ink);font-weight:800">Stock Before Receipt</th>' +
-          '<th colspan="3" style="white-space:nowrap;padding:10px;text-align:center;background:rgba(16,185,129,0.04);color:var(--ink);font-weight:800">After Decantation (100L Flush)</th>' +
-          '<th rowspan="2" style="text-align:center;vertical-align:middle;width:65px;padding:10px">Action</th>' +
-        '</tr>' +
-        '<tr style="background:rgba(0,0,0,0.015);color:var(--mute);font-weight:700;font-size:11px">' +
-          '<th class="r" style="padding:8px 6px">Density</th>' +
-          '<th class="r" style="padding:8px 6px">Temp</th>' +
-          '<th class="r" style="padding:8px 6px;color:var(--ink);background:rgba(37,99,235,0.06);font-weight:800">At 15&deg;C</th>' +
-          '<th class="r" style="padding:8px 6px;width:48px">I</th>' +
-          '<th class="r" style="padding:8px 6px;width:48px">II</th>' +
-          '<th class="r" style="padding:8px 6px;width:48px">III</th>' +
-          '<th class="r" style="padding:8px 6px;width:48px">IV</th>' +
-          '<th class="r" style="padding:8px 6px">Dip</th>' +
-          '<th class="r" style="padding:8px 6px">Stock</th>' +
-          '<th class="r" style="padding:8px 6px;color:var(--ink);background:rgba(16,185,129,0.06);font-weight:800">Density</th>' +
-          '<th class="r" style="padding:8px 6px">Receipt KL</th>' +
-          '<th style="padding:8px 6px;text-align:center">Challan no</th>' +
-        '</tr>' +
-      '</thead>' +
-      '<tbody>';
+    // 17-column Statutory Table for this product
+    h += '<div class="tbl" style="margin-bottom:24px;overflow-x:auto">' +
+      '<table style="min-width:1240px">' +
+        '<thead>' +
+          '<tr style="background:rgba(0,0,0,0.02)">' +
+            '<th rowspan="2" style="white-space:nowrap;padding:10px;text-align:left;vertical-align:middle">Date / Tank</th>' +
+            '<th colspan="3" style="white-space:nowrap;padding:10px;text-align:center;background:rgba(37,99,235,0.04);color:var(--ink);font-weight:800">Morning Density at 15&deg;C U/G Tanks</th>' +
+            '<th colspan="4" style="white-space:nowrap;padding:10px;text-align:center;color:var(--ink);font-weight:800">Tank/Truck Receipt Density Compartment</th>' +
+            '<th rowspan="2" class="r" style="white-space:nowrap;padding:10px;text-align:right;vertical-align:middle;font-weight:800">Mix<br>Density</th>' +
+            '<th rowspan="2" class="r" style="white-space:nowrap;padding:10px;text-align:right;vertical-align:middle">Density @ 15&deg;C<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">As per challan</span></th>' +
+            '<th rowspan="2" class="r" style="white-space:nowrap;padding:10px;text-align:right;vertical-align:middle;font-weight:800">Dif in Density<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Mix &minus; Challan</span></th>' +
+            '<th colspan="2" style="white-space:nowrap;padding:10px;text-align:center;color:var(--ink);font-weight:800">Stock Before Receipt</th>' +
+            '<th colspan="3" style="white-space:nowrap;padding:10px;text-align:center;background:rgba(16,185,129,0.04);color:var(--ink);font-weight:800">After Decantation (100L Flush)</th>' +
+            '<th class="noprint" rowspan="2" style="text-align:center;vertical-align:middle;width:65px;padding:10px">Action</th>' +
+          '</tr>' +
+          '<tr style="background:rgba(0,0,0,0.015);color:var(--mute);font-weight:700;font-size:11px">' +
+            '<th class="r" style="padding:8px 6px">Density</th>' +
+            '<th class="r" style="padding:8px 6px">Temp</th>' +
+            '<th class="r" style="padding:8px 6px;color:var(--ink);background:rgba(37,99,235,0.06);font-weight:800">At 15&deg;C</th>' +
+            '<th class="r" style="padding:8px 6px;width:48px">I</th>' +
+            '<th class="r" style="padding:8px 6px;width:48px">II</th>' +
+            '<th class="r" style="padding:8px 6px;width:48px">III</th>' +
+            '<th class="r" style="padding:8px 6px;width:48px">IV</th>' +
+            '<th class="r" style="padding:8px 6px">Dip</th>' +
+            '<th class="r" style="padding:8px 6px">Stock</th>' +
+            '<th class="r" style="padding:8px 6px;color:var(--ink);background:rgba(16,185,129,0.06);font-weight:800">Density</th>' +
+            '<th class="r" style="padding:8px 6px">Receipt KL</th>' +
+            '<th style="padding:8px 6px;text-align:center">Challan no</th>' +
+          '</tr>' +
+        '</thead>' +
+        '<tbody>';
 
-  if (!rows.length) {
-    h += '<tr><td colspan="16" style="padding:28px 10px;text-align:center;color:var(--mute)">No density checks recorded yet. Click <b>+ Record density check</b> to add an entry.</td></tr>';
-  } else {
-    rows.forEach(function(r) {
+    var datesList = getDatesInRange(TANK_FROM, TANK_TO);
+    if (!datesList.length && pRows.length) {
+      datesList = [today()];
+    }
+
+    var densByDateTank = {};
+    pRows.forEach(function(r) {
+      var k = (r.d || "") + "_" + (r.tank_id || "");
+      (densByDateTank[k] = densByDateTank[k] || []).push(r);
+    });
+
+    var renderedDensIds = {};
+
+    datesList.forEach(function(dStr) {
+      if (pTanks.length > 0) {
+        pTanks.forEach(function(tk) {
+          var k = dStr + "_" + tk.id;
+          var recList = densByDateTank[k] || (pTanks.length === 1 ? densByDateTank[dStr + "_"] : null);
+          if (recList && recList.length) {
+            recList.forEach(function(r) {
+              if (r.id) renderedDensIds[r.id] = true;
+              var dParts = (r.d || '').split('-');
+              var dFmt = dParts.length === 3 ? (parseInt(dParts[2], 10) + '/' + parseInt(dParts[1], 10) + '/' + dParts[0]) : r.d;
+              var isWarning = r.dens_diff != null && Math.abs(r.dens_diff) > 3.0;
+
+              h += '<tr>' +
+                '<td style="vertical-align:middle;padding:10px;white-space:nowrap">' +
+                  '<span style="font-weight:700;color:var(--ink)">' + esc(dFmt) + '</span>' +
+                  (r.tank_name ? '<div class="sub" style="font-size:11px;margin-top:2px">' + esc(r.tank_name) + '</div>' : '') +
+                '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.m_obs) || '&mdash;') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.m_temp) || '&mdash;') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(37,99,235,0.06);font-weight:800;color:var(--ink)">' + (fld(r.m_d15) || '&mdash;') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px 6px;font-variant-numeric:tabular-nums">' + (fld(r.comp1) || '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px 6px;font-variant-numeric:tabular-nums">' + (fld(r.comp2) || '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px 6px;font-variant-numeric:tabular-nums">' + (fld(r.comp3) || '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px 6px;font-variant-numeric:tabular-nums">' + (fld(r.comp4) || '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:700">' + (fld(r.mix_dens) || '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.chalan_dens) || '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:800;font-size:14px;color:' + (r.dens_diff != null ? (isWarning ? 'var(--due)' : 'var(--ok)') : 'inherit') + '">' + (r.dens_diff != null ? fld(r.dens_diff) : '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.pre_dip) || '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (r.pre_stock != null ? lt(r.pre_stock) : '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(16,185,129,0.06);font-weight:800;color:var(--ink)">' + (fld(r.post_dens) || '') + '</td>' +
+                '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (r.receipt_kl != null ? (fld(r.receipt_kl) + ' KL') : '') + '</td>' +
+                '<td style="vertical-align:middle;padding:10px;text-align:center;font-size:12px">' + esc(r.chalan_no || '') + '</td>' +
+                '<td class="noprint" style="vertical-align:middle;text-align:center;padding:10px;white-space:nowrap">' +
+                  (r.id > 0 ? (
+                    (r.m_d15 == null ? '<button class="ghost" style="padding:2px 6px;font-size:11px;color:var(--btn);margin-right:4px" onclick="morningDensityForm(' + tk.id + ',\'' + (r.d || dStr) + '\')">+ Morning</button>' : '') +
+                    (r.post_dens == null && r.mix_dens == null ? '<button class="ghost" style="padding:2px 6px;font-size:11px;color:var(--ok);margin-right:4px" onclick="tankerDecantForm(' + tk.id + ',\'' + (r.d || dStr) + '\')">+ Decant</button>' : '') +
+                    '<button class="ghost" style="padding:2px 6px;font-size:11px;color:var(--due)" title="Delete density check" onclick="delDensReg(' + r.id + ')">Delete</button>'
+                  ) : '<span style="color:var(--mute)">&mdash;</span>') +
+                '</td>' +
+              '</tr>';
+            });
+          } else {
+            // Blank record row for non-recorded date
+            h += '<tr style="opacity:0.75;background:rgba(0,0,0,0.01)">' +
+              '<td style="vertical-align:middle;padding:10px;white-space:nowrap">' +
+                '<span style="font-weight:700;color:var(--ink)">' + fmtDateDMY(dStr) + '</span>' +
+                '<div class="sub" style="font-size:11px;margin-top:2px;color:var(--mute)">' + esc(tk.name) + ' &bull; <span style="font-style:italic">Not recorded</span></div>' +
+              '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;color:var(--mute)">&mdash;</td>' +
+              '<td style="vertical-align:middle;padding:10px;text-align:center;color:var(--mute)">&mdash;</td>' +
+              '<td class="noprint" style="vertical-align:middle;text-align:center;padding:10px;white-space:nowrap">' +
+                '<button class="ghost" style="padding:2px 6px;font-size:11px;color:var(--btn);margin-right:4px" onclick="morningDensityForm(' + tk.id + ',\'' + dStr + '\')">+ Morning</button>' +
+                '<button class="ghost" style="padding:2px 6px;font-size:11px;color:var(--ok)" onclick="tankerDecantForm(' + tk.id + ',\'' + dStr + '\')">+ Decant</button>' +
+              '</td>' +
+            '</tr>';
+          }
+        });
+      } else {
+        // No tanks configured
+        var recList = densByDateTank[dStr + "_"];
+        if (recList && recList.length) {
+          recList.forEach(function(r) {
+            if (r.id) renderedDensIds[r.id] = true;
+            var dParts = (r.d || '').split('-');
+            var dFmt = dParts.length === 3 ? (parseInt(dParts[2], 10) + '/' + parseInt(dParts[1], 10) + '/' + dParts[0]) : r.d;
+            var isWarning = r.dens_diff != null && Math.abs(r.dens_diff) > 3.0;
+            h += '<tr>' +
+              '<td style="vertical-align:middle;padding:10px;white-space:nowrap">' +
+                '<span style="font-weight:700;color:var(--ink)">' + esc(dFmt) + '</span>' +
+              '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px">' + (fld(r.m_obs) || '&mdash;') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px">' + (fld(r.m_temp) || '&mdash;') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;background:rgba(37,99,235,0.06);font-weight:800;color:var(--ink)">' + (fld(r.m_d15) || '&mdash;') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px 6px">' + (fld(r.comp1) || '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px 6px">' + (fld(r.comp2) || '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px 6px">' + (fld(r.comp3) || '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px 6px">' + (fld(r.comp4) || '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-weight:700">' + (fld(r.mix_dens) || '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px">' + (fld(r.chalan_dens) || '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;font-weight:800;color:' + (r.dens_diff != null ? (isWarning ? 'var(--due)' : 'var(--ok)') : 'inherit') + '">' + (r.dens_diff != null ? fld(r.dens_diff) : '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px">' + (fld(r.pre_dip) || '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px">' + (r.pre_stock != null ? lt(r.pre_stock) : '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px;background:rgba(16,185,129,0.06);font-weight:800;color:var(--ink)">' + (fld(r.post_dens) || '') + '</td>' +
+              '<td class="r" style="vertical-align:middle;padding:10px">' + (r.receipt_kl != null ? (fld(r.receipt_kl) + ' KL') : '') + '</td>' +
+              '<td style="vertical-align:middle;padding:10px;text-align:center">' + esc(r.chalan_no || '') + '</td>' +
+              '<td class="noprint" style="vertical-align:middle;text-align:center;padding:10px">' +
+                (r.id > 0 ? '<button class="ghost" style="padding:4px 8px;font-size:12px" title="Delete density check" onclick="delDensReg(' + r.id + ')">Delete</button>' : '<span style="color:var(--mute)">&mdash;</span>') +
+              '</td>' +
+            '</tr>';
+          });
+        } else {
+          h += '<tr style="opacity:0.75;background:rgba(0,0,0,0.01)">' +
+            '<td style="vertical-align:middle;padding:10px;white-space:nowrap">' +
+              '<span style="font-weight:700;color:var(--ink)">' + fmtDateDMY(dStr) + '</span>' +
+              '<div class="sub" style="font-size:11px;margin-top:2px;color:var(--mute)">Not recorded</div>' +
+            '</td>' +
+            '<td colspan="15" class="r" style="vertical-align:middle;padding:10px;color:var(--mute);text-align:center">&mdash;</td>' +
+            '<td class="noprint" style="vertical-align:middle;text-align:center;padding:10px;white-space:nowrap">' +
+              '<button class="ghost" style="padding:2px 6px;font-size:11px;color:var(--btn);margin-right:4px" onclick="morningDensityForm(null,\'' + dStr + '\')">+ Morning</button>' +
+              '<button class="ghost" style="padding:2px 6px;font-size:11px;color:var(--ok)" onclick="tankerDecantForm(null,\'' + dStr + '\')">+ Decant</button>' +
+            '</td>' +
+          '</tr>';
+        }
+      }
+    });
+
+    // Any remaining pRows outside datesList
+    pRows.forEach(function(r) {
+      if (r.id && renderedDensIds[r.id]) return;
       var dParts = (r.d || '').split('-');
       var dFmt = dParts.length === 3 ? (parseInt(dParts[2], 10) + '/' + parseInt(dParts[1], 10) + '/' + dParts[0]) : r.d;
       var isWarning = r.dens_diff != null && Math.abs(r.dens_diff) > 3.0;
@@ -2058,7 +2606,7 @@ function densHtml(DREG) {
       h += '<tr>' +
         '<td style="vertical-align:middle;padding:10px;white-space:nowrap">' +
           '<span style="font-weight:700;color:var(--ink)">' + esc(dFmt) + '</span>' +
-          (!DENS_FILTER.tank_id && r.tank_name ? '<div class="sub" style="font-size:11px;margin-top:2px">' + esc(r.tank_name) + (r.fuel ? ' &bull; ' + esc(r.fuel) : '') + '</div>' : '') +
+          (r.tank_name ? '<div class="sub" style="font-size:11px;margin-top:2px">' + esc(r.tank_name) + '</div>' : '') +
         '</td>' +
         '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.m_obs) || '&mdash;') + '</td>' +
         '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.m_temp) || '&mdash;') + '</td>' +
@@ -2075,132 +2623,182 @@ function densHtml(DREG) {
         '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(16,185,129,0.06);font-weight:800;color:var(--ink)">' + (fld(r.post_dens) || '') + '</td>' +
         '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (r.receipt_kl != null ? (fld(r.receipt_kl) + ' KL') : '') + '</td>' +
         '<td style="vertical-align:middle;padding:10px;text-align:center;font-size:12px">' + esc(r.chalan_no || '') + '</td>' +
-        '<td style="vertical-align:middle;text-align:center;padding:10px">' +
+        '<td class="noprint" style="vertical-align:middle;text-align:center;padding:10px">' +
           (r.id > 0 ? '<button class="ghost" style="padding:4px 8px;font-size:12px" title="Delete density check" onclick="delDensReg(' + r.id + ')">Delete</button>' : '<span style="color:var(--mute)">&mdash;</span>') +
         '</td>' +
       '</tr>';
     });
+
+    // Product footer summary row
+    h += '<tfoot>' +
+      '<tr style="background:rgba(0,0,0,0.035);font-weight:800;border-top:2px solid var(--line)">' +
+        '<td style="padding:10px">' + esc(fName) + ' Summary (' + pRows.length + ' of ' + (datesList.length * Math.max(1, pTanks.length)) + ' days recorded)</td>' +
+        '<td class="r" style="padding:10px">&mdash;</td>' +
+        '<td class="r" style="padding:10px">&mdash;</td>' +
+        '<td class="r" style="padding:10px;color:var(--ink);background:rgba(37,99,235,0.08)">' + (avgM15 ? avgM15 : '&mdash;') + '</td>' +
+        '<td class="r" style="padding:10px" colspan="4">&mdash;</td>' +
+        '<td class="r" style="padding:10px">' + (avgMix ? avgMix : '&mdash;') + '</td>' +
+        '<td class="r" style="padding:10px">' + (avgChal ? avgChal : '&mdash;') + '</td>' +
+        '<td class="r" style="padding:10px;color:' + (warnDiffs > 0 ? 'var(--due)' : 'var(--ok)') + '">' + (warnDiffs === 0 ? '✓ &le; 3.0' : warnDiffs + ' &gt; 3.0') + '</td>' +
+        '<td class="r" style="padding:10px">&mdash;</td>' +
+        '<td class="r" style="padding:10px">&mdash;</td>' +
+        '<td class="r" style="padding:10px;background:rgba(16,185,129,0.08)">&mdash;</td>' +
+        '<td class="r" style="padding:10px;color:var(--ok)">' + (totDecantKL > 0 ? fld(totDecantKL) + ' KL' : '&mdash;') + '</td>' +
+        '<td style="padding:10px;text-align:center">&mdash;</td>' +
+        '<td class="noprint" style="padding:10px">&mdash;</td>' +
+      '</tr>' +
+    '</tfoot>';
+
+    h += '</tbody></table></div>';
+  });
+
+  if (!anyDensRendered) {
+    h += '<div class="empty" style="margin:20px 0;padding:24px">No density checks matching the selected product or date range.</div>';
   }
 
-  h += '</tbody></table></div>';
   return h;
 }
 
-function densRegisterForm() {
+function morningDensityForm(preTankId, preDate) {
   if (!S.tanks.length) return toast("Add your tanks first in Tanks setup.");
-  var todayStr = today();
-  openM('<h2>Record Density Check</h2><div class="sub">Log daily morning underground tank density and tanker receipt decantation</div>' +
-    '<div class="row"><label>Date<input id="dr_d" type="date" value="' + todayStr + '"></label>' +
-    '<label>Tank<select id="dr_tank">' + S.tanks.map(function(t){return '<option value="' + t.id + '">' + esc(t.name) + ' (' + esc(t.fuel) + ')</option>'}).join("") + '</select></label></div>' +
-    
-    '<div style="font-weight:800;margin:14px 0 4px;color:var(--ink)">1. Morning Density at 15°C U/G Tanks</div>' +
+  var todayStr = preDate || today();
+  var defaultTankId = preTankId || (DENS_FILTER.tank_id ? DENS_FILTER.tank_id : (TANK_PRODUCT ? (S.tanks.filter(function(t){ return t.fuel === TANK_PRODUCT; })[0] || {}).id : S.tanks[0].id));
+  openM('<h2>Daily Morning Underground Tank Density</h2><div class="sub">Log morning observed density & temperature for underground tanks at 15°C (ASTM 53B)</div>' +
     '<div class="row">' +
-      '<label>Observed Density<input id="dr_m_obs" inputmode="decimal" placeholder="e.g. 732.0" oninput="autoCalcD15()"></label>' +
-      '<label>Temp (°C)<input id="dr_m_temp" inputmode="decimal" placeholder="e.g. 27.0" oninput="autoCalcD15()"></label>' +
-      '<label>Density at 15°C<input id="dr_m_d15" inputmode="decimal" placeholder="Auto / e.g. 742.7"></label>' +
+      '<label>Date<input id="md_d" type="date" value="' + todayStr + '"></label>' +
+      '<label>Tank<select id="md_tank">' + S.tanks.map(function(t){return '<option value="' + t.id + '"' + (String(t.id) === String(defaultTankId) ? ' selected' : '') + '>' + esc(t.name) + ' (' + esc(t.fuel) + ')</option>'}).join("") + '</select></label>' +
     '</div>' +
-    
-    '<div style="margin:14px 0 6px">' +
-      '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;color:var(--ink)">' +
-        '<input type="checkbox" id="dr_has_deliv" onchange="var el=document.getElementById(\'dr_deliv_box\');if(el)el.style.display=this.checked?\'block\':\'none\'">' +
-        'Tanker delivery received today (Decantation checks)' +
-      '</label>' +
+    '<div style="font-weight:700;margin:12px 0 6px;color:var(--ink)">Underground Tank Observations</div>' +
+    '<div class="row">' +
+      '<label>Observed Density (kg/m³)<input id="md_obs" inputmode="decimal" placeholder="e.g. 732.0" oninput="calcMorningD15()"></label>' +
+      '<label>Temperature (°C)<input id="md_temp" inputmode="decimal" placeholder="e.g. 27.0" oninput="calcMorningD15()"></label>' +
+      '<label>Density at 15°C (kg/m³)<input id="md_d15" inputmode="decimal" placeholder="Auto / e.g. 742.7"></label>' +
     '</div>' +
-    
-    '<div id="dr_deliv_box" style="display:none;background:rgba(0,0,0,0.02);padding:12px;border-radius:8px;border:1px solid var(--line);margin-bottom:8px">' +
-      '<div style="font-weight:700;margin-bottom:6px;font-size:13px">Tank/Truck Receipt Density Compartments</div>' +
-      '<div class="row">' +
-        '<label>Comp I<input id="dr_c1" inputmode="decimal" placeholder="e.g. 742.0" oninput="autoCalcMix()"></label>' +
-        '<label>Comp II<input id="dr_c2" inputmode="decimal" placeholder="e.g. 741.8" oninput="autoCalcMix()"></label>' +
-        '<label>Comp III<input id="dr_c3" inputmode="decimal" placeholder="" oninput="autoCalcMix()"></label>' +
-        '<label>Comp IV<input id="dr_c4" inputmode="decimal" placeholder="" oninput="autoCalcMix()"></label>' +
-      '</div>' +
-      '<div class="row" style="margin-top:8px">' +
-        '<label>Mix Compartment Density<input id="dr_mix" inputmode="decimal" placeholder="Auto average" oninput="autoCalcDiff()"></label>' +
-        '<label>Challan Density @ 15°C<input id="dr_chalan_dens" inputmode="decimal" placeholder="e.g. 741.3" oninput="autoCalcDiff()"></label>' +
-        '<label>Difference (Mix &minus; Challan)<input id="dr_diff" inputmode="decimal" placeholder="Auto diff"></label>' +
-      '</div>' +
-      '<div style="font-weight:700;margin:12px 0 6px;font-size:13px">Stock Before Receipt & Decantation (100L Flush)</div>' +
-      '<div class="row">' +
-        '<label>Pre-Receipt Dip (cm)<input id="dr_pre_dip" inputmode="decimal" placeholder="e.g. 142.5"></label>' +
-        '<label>Pre-Receipt Stock (L)<input id="dr_pre_stock" inputmode="decimal" placeholder="e.g. 4200"></label>' +
-      '</div>' +
-      '<div class="row" style="margin-top:8px">' +
-        '<label>Density @ 15°C After Decant (100L)<input id="dr_post_dens" inputmode="decimal" placeholder="e.g. 741.6"></label>' +
-        '<label>Receipt KL<input id="dr_rec_kl" inputmode="decimal" placeholder="e.g. 3.0 or 6.0"></label>' +
-        '<label>Challan No.<input id="dr_chalan_no" placeholder="e.g. CH-91042"></label>' +
-      '</div>' +
-    '</div>' +
-    
+    '<div class="sub" style="margin-top:6px;font-size:11.5px">Statutory standard: MS (720.0 &ndash; 775.0 kg/m³) &bull; HSD (820.0 &ndash; 860.0 kg/m³)</div>' +
     '<div class="err" id="er"></div>' +
-    '<div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveDensRegister()">Save density check</button></div>'
+    '<div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveMorningDensity()">Save Morning Density</button></div>'
   );
 }
 
-function autoCalcD15() {
-  var obs = parseFloat(v("dr_m_obs")), temp = parseFloat(v("dr_m_temp"));
+function calcMorningD15() {
+  var obs = parseFloat(v("md_obs")), temp = parseFloat(v("md_temp"));
   if (!isNaN(obs) && !isNaN(temp)) {
     var o = obs < 2 ? obs * 1000 : obs;
     var d15 = o + (temp - 15) * 0.89;
-    var el = document.getElementById("dr_m_d15");
+    var el = document.getElementById("md_d15");
     if (el) el.value = (Math.round(d15 * 10) / 10).toFixed(1);
   }
 }
 
-function autoCalcMix() {
-  var c1 = parseFloat(v("dr_c1")), c2 = parseFloat(v("dr_c2")), c3 = parseFloat(v("dr_c3")), c4 = parseFloat(v("dr_c4"));
-  var arr = [c1, c2, c3, c4].filter(function(x){ return !isNaN(x); }).map(function(x){ return x < 2 ? x * 1000 : x; });
-  if (arr.length > 0) {
-    var avg = arr.reduce(function(a, b){ return a + b; }, 0) / arr.length;
-    var el = document.getElementById("dr_mix");
-    if (el) el.value = (Math.round(avg * 10) / 10).toFixed(1);
-    autoCalcDiff();
-  }
-}
-
-function autoCalcDiff() {
-  var mix = parseFloat(v("dr_mix")), ch = parseFloat(v("dr_chalan_dens"));
-  if (!isNaN(mix) && !isNaN(ch)) {
-    var m = mix < 2 ? mix * 1000 : mix;
-    var c = ch < 2 ? ch * 1000 : ch;
-    var df = Math.abs(m - c);
-    var el = document.getElementById("dr_diff");
-    if (el) el.value = (Math.round(df * 10) / 10).toFixed(1);
-  }
-}
-
-function saveDensRegister() {
+function saveMorningDensity() {
   var b = {
-    d: v("dr_d"),
-    tank_id: v("dr_tank"),
-    m_obs: v("dr_m_obs"),
-    m_temp: v("dr_m_temp"),
-    m_d15: v("dr_m_d15")
+    d: v("md_d"),
+    tank_id: v("md_tank"),
+    m_obs: v("md_obs"),
+    m_temp: v("md_temp"),
+    m_d15: v("md_d15")
   };
-  var chk = document.getElementById("dr_has_deliv");
-  if (chk && chk.checked) {
-    b.comp1 = v("dr_c1");
-    b.comp2 = v("dr_c2");
-    b.comp3 = v("dr_c3");
-    b.comp4 = v("dr_c4");
-    b.mix_dens = v("dr_mix");
-    b.chalan_dens = v("dr_chalan_dens");
-    b.dens_diff = v("dr_diff");
-    b.pre_dip = v("dr_pre_dip");
-    b.pre_stock = v("dr_pre_stock");
-    b.post_dens = v("dr_post_dens");
-    b.receipt_kl = v("dr_rec_kl");
-    b.chalan_no = v("dr_chalan_no");
-  }
   if (!b.tank_id) return er("Please choose a tank.");
   if (!b.d) return er("Please select a date.");
-  if (!b.m_obs && !b.m_d15 && !(chk && chk.checked)) return er("Please enter observed density or temperature.");
+  if (!b.m_obs && !b.m_d15) return er("Please enter observed density.");
   api("POST", "/api/density-register", b).then(function() {
     close();
     renderTanks();
   }).catch(function(e) {
-    er(e.error || "Could not save density check.");
+    er(e.error || "Could not save morning density.");
   });
+}
+
+function tankerDecantForm(preTankId, preDate) {
+  if (!S.tanks.length) return toast("Add your tanks first in Tanks setup.");
+  var todayStr = preDate || today();
+  var defaultTankId = preTankId || (DENS_FILTER.tank_id ? DENS_FILTER.tank_id : (TANK_PRODUCT ? (S.tanks.filter(function(t){ return t.fuel === TANK_PRODUCT; })[0] || {}).id : S.tanks[0].id));
+  openM('<h2>Tanker Receipt Decantation Check</h2><div class="sub">Log tanker truck receipt compartment densities, challan verification, and post-decantation check</div>' +
+    '<div class="row">' +
+      '<label>Date<input id="td_d" type="date" value="' + todayStr + '"></label>' +
+      '<label>Tank<select id="td_tank">' + S.tanks.map(function(t){return '<option value="' + t.id + '"' + (String(t.id) === String(defaultTankId) ? ' selected' : '') + '>' + esc(t.name) + ' (' + esc(t.fuel) + ')</option>'}).join("") + '</select></label>' +
+    '</div>' +
+    '<div style="font-weight:700;margin:12px 0 4px;font-size:13px;color:var(--ink)">Tank/Truck Receipt Density Compartments</div>' +
+    '<div class="row">' +
+      '<label>Comp I<input id="td_c1" inputmode="decimal" placeholder="e.g. 742.0" oninput="calcDecantMix()"></label>' +
+      '<label>Comp II<input id="td_c2" inputmode="decimal" placeholder="e.g. 741.8" oninput="calcDecantMix()"></label>' +
+      '<label>Comp III<input id="td_c3" inputmode="decimal" placeholder="" oninput="calcDecantMix()"></label>' +
+      '<label>Comp IV<input id="td_c4" inputmode="decimal" placeholder="" oninput="calcDecantMix()"></label>' +
+    '</div>' +
+    '<div class="row" style="margin-top:8px">' +
+      '<label>Mix Compartment Density<input id="td_mix" inputmode="decimal" placeholder="Auto average" oninput="calcDecantDiff()"></label>' +
+      '<label>Challan Density @ 15°C<input id="td_chalan_dens" inputmode="decimal" placeholder="e.g. 741.3" oninput="calcDecantDiff()"></label>' +
+      '<label>Difference (Mix &minus; Challan)<input id="td_diff" inputmode="decimal" placeholder="Auto diff (&le; 3.0)"></label>' +
+    '</div>' +
+    '<div style="font-weight:700;margin:14px 0 4px;font-size:13px;color:var(--ink)">Stock Before Receipt & Decantation (100L Flush)</div>' +
+    '<div class="row">' +
+      '<label>Pre-Receipt Dip (cm)<input id="td_pre_dip" inputmode="decimal" placeholder="e.g. 142.5"></label>' +
+      '<label>Pre-Receipt Stock (L)<input id="td_pre_stock" inputmode="decimal" placeholder="e.g. 4200"></label>' +
+    '</div>' +
+    '<div class="row" style="margin-top:8px">' +
+      '<label>Density @ 15°C After Decant (100L Flush)<input id="td_post_dens" inputmode="decimal" placeholder="e.g. 741.6"></label>' +
+      '<label>Receipt Volume (KL)<input id="td_rec_kl" inputmode="decimal" placeholder="e.g. 3.0 or 6.0"></label>' +
+      '<label>Challan / Invoice No.<input id="td_chalan_no" placeholder="e.g. CH-91042"></label>' +
+    '</div>' +
+    '<div class="err" id="er"></div>' +
+    '<div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveTankerDecant()">Save Decantation Check</button></div>'
+  );
+}
+
+function calcDecantMix() {
+  var c1 = parseFloat(v("td_c1")), c2 = parseFloat(v("td_c2")), c3 = parseFloat(v("td_c3")), c4 = parseFloat(v("td_c4"));
+  var arr = [c1, c2, c3, c4].filter(function(x){ return !isNaN(x); }).map(function(x){ return x < 2 ? x * 1000 : x; });
+  if (arr.length > 0) {
+    var avg = arr.reduce(function(a, b){ return a + b; }, 0) / arr.length;
+    var el = document.getElementById("td_mix");
+    if (el) el.value = (Math.round(avg * 10) / 10).toFixed(1);
+    calcDecantDiff();
+  }
+}
+
+function calcDecantDiff() {
+  var mix = parseFloat(v("td_mix")), ch = parseFloat(v("td_chalan_dens"));
+  if (!isNaN(mix) && !isNaN(ch)) {
+    var m = mix < 2 ? mix * 1000 : mix;
+    var c = ch < 2 ? ch * 1000 : ch;
+    var df = Math.abs(m - c);
+    var el = document.getElementById("td_diff");
+    if (el) el.value = (Math.round(df * 10) / 10).toFixed(1);
+  }
+}
+
+function saveTankerDecant() {
+  var b = {
+    d: v("td_d"),
+    tank_id: v("td_tank"),
+    comp1: v("td_c1"),
+    comp2: v("td_c2"),
+    comp3: v("td_c3"),
+    comp4: v("td_c4"),
+    mix_dens: v("td_mix"),
+    chalan_dens: v("td_chalan_dens"),
+    dens_diff: v("td_diff"),
+    pre_dip: v("td_pre_dip"),
+    pre_stock: v("td_pre_stock"),
+    post_dens: v("td_post_dens"),
+    receipt_kl: v("td_rec_kl"),
+    chalan_no: v("td_chalan_no")
+  };
+  if (!b.tank_id) return er("Please choose a tank.");
+  if (!b.d) return er("Please select a date.");
+  if (!b.comp1 && !b.mix_dens && !b.post_dens && !b.receipt_kl && !b.chalan_no) {
+    return er("Please enter tanker compartment densities or challan details.");
+  }
+  api("POST", "/api/density-register", b).then(function() {
+    close();
+    renderTanks();
+  }).catch(function(e) {
+    er(e.error || "Could not save decantation check.");
+  });
+}
+
+function densRegisterForm(preTankId, preDate) {
+  morningDensityForm(preTankId, preDate);
 }
 
 function delDensReg(id) {
@@ -2532,6 +3130,286 @@ function saveUser(){api("POST","/api/users",{name:v("u1"),mobile:v("u2"),role:v(
 function userAct(id,w){api("PATCH","/api/users/"+id,{active:w=="on"}).then(renderTeam).catch(function(e){badge(e.error||"Could not update the user.")})}
 function resetPw(id){openM('<h2>Reset password</h2><label>New password (6+ characters)<input id="u4" autocomplete="off"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="savePw2('+id+')">Reset password</button></div>')}
 function savePw2(id){api("PATCH","/api/users/"+id,{password:document.getElementById("u4").value}).then(function(){close();renderTeam()}).catch(function(e){er(e.error||"Could not reset the password.")})}
+// ---- Contiguous Cash Flow Register Engine (Day Start 6 AM, Shifts, Bank Deposit, Closing Rollover)
+var CF_REG_FROM = "";
+var CF_REG_TO = "";
+var CF_DATE = today();
+
+function cfDayStr(d) {
+  try {
+    return new Date(d + "T12:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  } catch(e) { return d; }
+}
+
+function renderCashflow() {
+  tab = "cashflow";
+  var A = document.getElementById("app");
+  if (!SRV) {
+    A.innerHTML = nav() + '<div class="empty">Cash Flow Register requires the server to be running.</div>';
+    return;
+  }
+  if (!CF_REG_FROM) {
+    var dt = new Date();
+    dt.setDate(dt.getDate() - 7);
+    CF_REG_FROM = dt.toISOString().slice(0, 10);
+  }
+  if (!CF_REG_TO) CF_REG_TO = today();
+
+  var wrap = document.querySelector(".wrap");
+  if (wrap) wrap.classList.add("wide");
+
+  A.innerHTML = nav() + '<div class="empty">Loading Contiguous Cash Flow Register\u2026</div>';
+
+  api("GET", "/api/cashflow/register?from=" + CF_REG_FROM + "&to=" + CF_REG_TO).then(function(R) {
+    if (tab !== "cashflow") return;
+    var h = nav() +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:12px">' +
+        '<div>' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+            '<h1 style="font-size:22px;font-weight:800;color:var(--ink);letter-spacing:-0.5px;margin:0">Contiguous Cash Flow Register</h1>' +
+            '<span style="background:var(--theme-accent-soft);color:var(--theme-accent);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px">06:00 AM Cycle</span>' +
+          '</div>' +
+          '<div class="sub" style="margin-top:3px">Day start 06:00 AM &bull; Opening Cash (+) Morning Shift (&minus;) Bank Deposit (+) Evening Shift (+) Night Shift = Closing Balance (Rolls over as Next Day 06:00 AM Opening)</div>' +
+        '</div>' +
+        '<div class="btns" style="margin:0">' +
+          '<button onclick="cfDepositModal(today())">+ Record Bank Deposit</button>' +
+          '<button class="ghost" onclick="cfOpeningModal(today(), 0)">Set 6 AM Opening Cash</button>' +
+          '<button class="ghost" onclick="window.print()">Print register</button>' +
+        '</div>' +
+      '</div>' +
+
+      // Formula Indicator Banner
+      '<div style="font-size:12px;color:var(--ink);background:var(--card);padding:9px 14px;border-radius:10px;border:1px solid var(--line);font-family:monospace;line-height:1.45;margin-bottom:14px">' +
+        '<b>Formula</b>: <span style="color:var(--theme-accent);font-weight:700">Opening (6 AM)</span> + <span style="color:var(--ok);font-weight:700">Morning Shift</span> &minus; <span style="color:var(--due);font-weight:700">Bank Deposit</span> + <span style="color:var(--ok);font-weight:700">Evening Shift</span> + <span style="color:var(--ok);font-weight:700">Night Shift</span> = <b>Closing Balance (= Next Day 6 AM Opening)</b>' +
+      '</div>' +
+
+      // Date Range Filter Toolbar
+      '<div class="row noprint" style="align-items:flex-end;gap:8px;margin-bottom:14px;background:var(--card);padding:10px 14px;border-radius:10px;border:1px solid var(--line);flex-wrap:wrap">' +
+        '<label style="margin:0">From Date<input type="date" value="' + CF_REG_FROM + '" onchange="CF_REG_FROM=this.value;renderCashflow()"></label>' +
+        '<label style="margin:0">To Date<input type="date" value="' + CF_REG_TO + '" onchange="CF_REG_TO=this.value;renderCashflow()"></label>' +
+        '<button class="ghost" style="padding:7px 12px" onclick="var d=new Date();d.setDate(d.getDate()-7);CF_REG_FROM=d.toISOString().slice(0,10);CF_REG_TO=today();renderCashflow()">Last 7 Days</button>' +
+        '<button class="ghost" style="padding:7px 12px" onclick="var d=new Date();d.setDate(d.getDate()-15);CF_REG_FROM=d.toISOString().slice(0,10);CF_REG_TO=today();renderCashflow()">Last 15 Days</button>' +
+        '<button class="ghost" style="padding:7px 12px" onclick="var d=new Date();d.setDate(1);CF_REG_FROM=d.toISOString().slice(0,10);CF_REG_TO=today();renderCashflow()">This Month</button>' +
+        '<button class="ghost" style="padding:7px 12px" onclick="var d=new Date();d.setMonth(d.getMonth()-1);d.setDate(1);var end=new Date(d.getFullYear(),d.getMonth()+1,0);CF_REG_FROM=d.toISOString().slice(0,10);CF_REG_TO=end.toISOString().slice(0,10);renderCashflow()">Last Month</button>' +
+      '</div>' +
+
+      // Contiguous Register Table
+      '<div class="tbl" style="margin-bottom:20px"><table style="min-width:1160px">' +
+        '<thead>' +
+          '<tr style="background:rgba(0,0,0,0.02)">' +
+            '<th style="white-space:nowrap;padding:10px">Date / Day</th>' +
+            '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(37,99,235,0.05);color:var(--ink)">06:00 AM Opening<br><span style="font-size:10px;font-weight:normal;color:var(--mute)">Start Till Cash</span></th>' +
+            '<th class="r" style="white-space:nowrap;padding:10px;color:var(--ok)">Morning (+)<br><span style="font-size:10px;font-weight:normal;color:var(--mute)">Shift Cash</span></th>' +
+            '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(0,0,0,0.015)">Subtotal<br><span style="font-size:10px;font-weight:normal;color:var(--mute)">Opening + Morning</span></th>' +
+            '<th class="r" style="white-space:nowrap;padding:10px;color:var(--due)">Bank Deposit (&minus;)<br><span style="font-size:10px;font-weight:normal;color:var(--mute)">Deposited in Bank</span></th>' +
+            '<th class="r" style="white-space:nowrap;padding:10px">Till After Deposit<br><span style="font-size:10px;font-weight:normal;color:var(--mute)">Cash in Hand</span></th>' +
+            '<th class="r" style="white-space:nowrap;padding:10px;color:var(--ok)">Evening (+)<br><span style="font-size:10px;font-weight:normal;color:var(--mute)">Shift Cash</span></th>' +
+            '<th class="r" style="white-space:nowrap;padding:10px;color:var(--ok)">Night (+)<br><span style="font-size:10px;font-weight:normal;color:var(--mute)">Shift Cash</span></th>' +
+            '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(16,185,129,0.08);color:var(--ink);font-weight:800">Closing Balance (=)<br><span style="font-size:10px;font-weight:normal;color:var(--mute)">End of Day Till Cash</span></th>' +
+            '<th class="r" style="white-space:nowrap;padding:10px;background:rgba(16,185,129,0.04);color:var(--ink)">Next Day 6 AM Opening<br><span style="font-size:10px;font-weight:normal;color:var(--mute)">Auto-Rollover</span></th>' +
+            '<th style="text-align:center;padding:10px;width:130px">Actions</th>' +
+          '</tr>' +
+        '</thead>' +
+        '<tbody>';
+
+    var days = R.days || [];
+    if (!days.length) {
+      h += '<tr><td colspan="11" class="empty">No cash flow activity in this date range.</td></tr>';
+    } else {
+      days.forEach(function(row) {
+        var depList = row.bank_deposits || [];
+        var depCount = depList.length;
+        h += '<tr>' +
+          '<td style="vertical-align:middle;padding:10px;font-weight:700"><span style="color:var(--ink)">' + row.d + '</span><div class="sub" style="font-size:11px">' + cfDayStr(row.d).split(',')[0] + '</div></td>' +
+          '<td class="r" style="vertical-align:middle;padding:10px;font-weight:700;font-variant-numeric:tabular-nums;background:rgba(37,99,235,0.03)">' +
+            inr(row.opening_cash) +
+            (row.opening_is_manual ?
+              '<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;margin-top:2px"><span style="font-size:9.5px;color:var(--theme-accent);font-weight:700;background:var(--theme-accent-soft);padding:1px 5px;border-radius:3px">MANUAL</span><button class="ghost" style="padding:1px 4px;font-size:9.5px;color:var(--due)" onclick="cfResetOpening(\'' + row.d + '\')" title="Reset to auto-carry from previous day">&times; Reset</button></div>' :
+              '<div class="sub" style="font-size:9.5px;color:var(--ok)">&check; Auto-roll</div>') +
+          '</td>' +
+          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;color:var(--ok);font-weight:700">+' + inr(row.morning_cash) + '</td>' +
+          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:700">' + inr(row.subtotal_after_morning) + '</td>' +
+          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;color:' + (row.bank_deposit > 0 ? 'var(--due)' : 'var(--mute)') + ';font-weight:700">' +
+            (row.bank_deposit > 0 ?
+              '<span style="cursor:pointer;text-decoration:underline" onclick="cfDepositsListModal(\'' + row.d + '\')" title="Click to view/manage deposit slips">&minus;' + inr(row.bank_deposit) + '</span>' +
+              '<div class="sub" style="font-size:9.5px">' + depCount + ' slip' + (depCount === 1 ? '' : 's') + '</div>' :
+              '&mdash;') +
+          '</td>' +
+          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:700">' + inr(row.subtotal_after_deposit) + '</td>' +
+          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;color:var(--ok);font-weight:700">+' + inr(row.evening_cash) + '</td>' +
+          '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;color:var(--ok);font-weight:700">+' + inr(row.night_cash) + '</td>' +
+          '<td class="r" style="vertical-align:middle;padding:10px;font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;background:rgba(16,185,129,0.08);color:var(--ink)">' + inr(row.closing_cash) + '</td>' +
+          '<td class="r" style="vertical-align:middle;padding:10px;font-weight:700;font-variant-numeric:tabular-nums;background:rgba(16,185,129,0.04);color:var(--ok)">' + inr(row.next_day_opening) + ' &check;</td>' +
+          '<td style="vertical-align:middle;text-align:center;padding:10px;white-space:nowrap">' +
+            '<button class="ghost" style="padding:4px 7px;font-size:11px;margin-right:4px" onclick="cfDepositModal(\'' + row.d + '\')" title="Record bank deposit for this day">+ Deposit</button>' +
+            '<button class="ghost" style="padding:4px 7px;font-size:11px" onclick="cfOpeningModal(\'' + row.d + '\',' + row.opening_cash + ')" title="Adjust 06:00 AM opening till cash">Edit 6 AM</button>' +
+          '</td>' +
+        '</tr>';
+      });
+    }
+    h += '</tbody></table></div>';
+    A.innerHTML = h;
+  }).catch(function(e) {
+    A.innerHTML = nav() + '<div class="empty">Error loading Contiguous Cash Flow Register: ' + esc(e.error || e.message) + '</div>';
+  });
+}
+
+function cfDepositsListModal(d) {
+  api("GET", "/api/cashflow/day/" + d).then(function(flow) {
+    var list = flow.bank_deposits || [];
+    var h = '<h2>Bank Deposits for ' + esc(d) + '</h2>' +
+      '<div class="sub">Total banked: <b>' + inr(flow.bank_deposit) + '</b> across ' + list.length + ' deposit' + (list.length === 1 ? '' : 's') + '.</div>';
+
+    if (!list.length) {
+      h += '<div class="empty">No bank deposits on this day.</div>';
+    } else {
+      h += '<div style="margin:14px 0;display:flex;flex-direction:column;gap:8px">';
+      list.forEach(function(dp) {
+        h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px">' +
+          '<div>' +
+            '<b style="font-size:13px;color:var(--ink)">' + esc(dp.bank_name || "Bank") + '</b>: <span style="font-weight:700;color:var(--due)">&minus;' + inr(dp.amount) + '</span>' +
+            '<div class="sub" style="font-size:11px;margin-top:2px">' +
+              (dp.slip_no ? 'Slip #' + esc(dp.slip_no) + ' &bull; ' : '') +
+              (dp.deposited_by ? 'By ' + esc(dp.deposited_by) + ' &bull; ' : '') +
+              (dp.note ? esc(dp.note) : '') +
+            '</div>' +
+          '</div>' +
+          '<button class="ghost" style="padding:3px 8px;font-size:11.5px;color:var(--due)" onclick="cfDeleteDeposit(' + dp.id + ',\'' + d + '\')">Delete</button>' +
+        '</div>';
+      });
+      h += '</div>';
+    }
+
+    h += '<div class="row" style="margin-top:16px;justify-content:space-between">' +
+      '<button class="ghost" onclick="close()">Close</button>' +
+      '<button onclick="close();cfDepositModal(\'' + d + '\')">+ Add Deposit for ' + esc(d) + '</button>' +
+    '</div>';
+
+    openM(h);
+  }).catch(function(e) {
+    badge(e.error || "Could not load deposit list.");
+  });
+}
+
+function cfDepositModal(d) {
+  openM('<h2>Record Bank Deposit</h2>' +
+    '<div class="sub">Deducts cash from station till and records bank deposit for ' + esc(d) + '.</div>' +
+    '<label>Deposit Date<input id="cf_d" type="date" value="' + esc(d) + '"></label>' +
+    '<label>Amount (&amp;#8377;)<input id="cf_amt" inputmode="decimal" placeholder="e.g. 50000" autofocus></label>' +
+    '<label>Bank Name<select id="cf_bank">' +
+      '<option value="State Bank of India">State Bank of India (SBI)</option>' +
+      '<option value="HDFC Bank">HDFC Bank</option>' +
+      '<option value="ICICI Bank">ICICI Bank</option>' +
+      '<option value="Punjab National Bank">Punjab National Bank (PNB)</option>' +
+      '<option value="Bank of Baroda">Bank of Baroda</option>' +
+      '<option value="Axis Bank">Axis Bank</option>' +
+      '<option value="Canara Bank">Canara Bank</option>' +
+      '<option value="Union Bank of India">Union Bank of India</option>' +
+      '<option value="Bank Account">Other Bank Account</option>' +
+    '</select></label>' +
+    '<label>Challan / Slip Number (optional)<input id="cf_slip" placeholder="e.g. SBI-DEP-88412"></label>' +
+    '<label>Deposited By<input id="cf_by" value="' + esc((ME && ME.name) || "Manager") + '"></label>' +
+    '<label>Note (optional)<input id="cf_note" placeholder="e.g. Afternoon post-morning shift collection deposit"></label>' +
+    '<div class="err" id="er"></div>' +
+    '<div class="row" style="margin-top:14px">' +
+      '<button class="ghost" onclick="close()">Cancel</button>' +
+      '<button onclick="cfSaveDeposit()">Save Bank Deposit</button>' +
+    '</div>');
+  setTimeout(function() {
+    var el = document.getElementById("cf_amt");
+    if (el) el.focus();
+  }, 100);
+}
+
+function cfSaveDeposit() {
+  var d = v("cf_d") || CF_DATE;
+  var amt = parseFloat(v("cf_amt"));
+  if (!(amt > 0)) return er("Please enter a valid deposit amount above &amp;#8377;0.");
+  var bank = v("cf_bank");
+  var slip = v("cf_slip");
+  var by = v("cf_by");
+  var note = v("cf_note");
+
+  api("POST", "/api/cashflow/deposit", {
+    d: d,
+    amount: amt,
+    bank_name: bank,
+    slip_no: slip,
+    deposited_by: by,
+    note: note
+  }).then(function() {
+    badge("Bank deposit of &amp;#8377;" + amt + " recorded!");
+    close();
+    CF_DATE = d;
+    renderCashflow();
+  }).catch(function(e) {
+    er(e.error || "Could not save deposit.");
+  });
+}
+
+function cfDeleteDeposit(id, d) {
+  ask("Delete this bank deposit? The daily cash flow and closing balance will be automatically updated.", function() {
+    api("DELETE", "/api/cashflow/deposit/" + id).then(function() {
+      badge("Bank deposit deleted");
+      CF_DATE = d;
+      renderCashflow();
+    }).catch(function(e) {
+      badge(e.error || "Could not delete deposit.");
+    });
+  });
+}
+
+function cfOpeningModal(d, currentAmt) {
+  openM('<h2>Set 06:00 AM Opening Till Cash</h2>' +
+    '<div class="sub">Set physical cash counted in drawer at 06:00 AM on ' + esc(d) + '.</div>' +
+    '<label>Date<input id="cfo_d" type="date" value="' + esc(d) + '" disabled></label>' +
+    '<label>Opening Cash (&amp;#8377;)<input id="cfo_amt" inputmode="decimal" value="' + (currentAmt != null ? currentAmt : 0) + '"></label>' +
+    '<label>Note (optional)<input id="cfo_note" placeholder="e.g. Verified physically at 06:00 AM handover"></label>' +
+    '<div style="font-size:11.5px;color:var(--mute);margin-top:6px;line-height:1.4">' +
+      '<b>Note:</b> Setting this marks this day with a manual 6 AM opening till count. All subsequent days will automatically roll forward from this day\'s calculated closing balance.' +
+    '</div>' +
+    '<div class="err" id="er"></div>' +
+    '<div class="row" style="margin-top:14px">' +
+      '<button class="ghost" onclick="close()">Cancel</button>' +
+      '<button onclick="cfSaveOpening(\'' + esc(d) + '\')">Save Opening Cash</button>' +
+    '</div>');
+  setTimeout(function() {
+    var el = document.getElementById("cfo_amt");
+    if (el) { el.focus(); el.select(); }
+  }, 100);
+}
+
+function cfSaveOpening(d) {
+  var amt = parseFloat(v("cfo_amt"));
+  if (isNaN(amt) || amt < 0) return er("Enter a valid opening cash amount (0 or greater).");
+  var note = v("cfo_note");
+
+  api("POST", "/api/cashflow/opening", {
+    d: d,
+    opening_cash: amt,
+    note: note
+  }).then(function() {
+    badge("Opening cash set to &amp;#8377;" + amt);
+    close();
+    CF_DATE = d;
+    renderCashflow();
+  }).catch(function(e) {
+    er(e.error || "Could not save opening cash.");
+  });
+}
+
+function cfResetOpening(d) {
+  ask("Reset 06:00 AM opening cash on " + d + " to automatically carry forward from " + d + "'s previous day closing balance?", function() {
+    api("POST", "/api/cashflow/reset-opening", { d: d }).then(function() {
+      badge("Opening cash reset to auto-carry from previous day!");
+      CF_DATE = d;
+      renderCashflow();
+    }).catch(function(e) {
+      badge(e.error || "Could not reset opening cash.");
+    });
+  });
+}
+
 setInterval(function(){if(!SRV||!ME||ME.role=="worker"||tab!="ledger"||document.getElementById("modal").classList.contains("on"))return;var a=document.activeElement;if(a&&/INPUT|SELECT|TEXTAREA/.test(a.tagName))return;pullDuty(render)},30000);
 boot();
 </script>
