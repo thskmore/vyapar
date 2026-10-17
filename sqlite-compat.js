@@ -42,6 +42,9 @@ class CompatDatabase {
   save() {
     if (this.inTransaction > 0) return;
     this.saveImmediate();
+    if (this.cloudSync) {
+      this.cloudSync.scheduleSync(this);
+    }
   }
 
   pragma(str) {
@@ -213,7 +216,14 @@ async function createDatabase(filePath) {
       console.warn("[sqlite-compat] Could not read existing DB, creating new:", e.message);
     }
   }
-  return new CompatDatabase(SQL, filePath, buffer);
+  const db = new CompatDatabase(SQL, filePath, buffer);
+  try {
+    const cloudSync = require("./src/db/cloudsql-sync");
+    db.cloudSync = cloudSync;
+  } catch (e) {
+    console.warn("[sqlite-compat] Cloud SQL sync disabled:", e.message);
+  }
+  return db;
 }
 
 module.exports = {

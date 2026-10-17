@@ -14,23 +14,30 @@ async function initDb() {
   db = await createDatabase(process.env.DB_PATH || path.join(__dirname, "data.db"));
   db.pragma("journal_mode = WAL");
   db.exec(`
+  create table if not exists pumps(
+    id integer primary key autoincrement,
+    name text not null,
+    code text unique,
+    owner_id integer,
+    created_at integer not null
+  );
   create table if not exists users(
-    id integer primary key, name text not null, mobile text unique not null,
-    hash text not null, role text not null check(role in ('owner','manager','worker')),
-    active integer not null default 1);
+    id integer primary key, pump_id integer not null default 1, name text not null, mobile text not null,
+    hash text, role text not null check(role in ('owner','manager','worker')),
+    active integer not null default 1, lang text not null default 'en', uid text);
   create table if not exists sessions(token text primary key, user_id integer not null, exp integer not null);
   create table if not exists state(id integer primary key check(id = 1), ver integer not null, json text not null);
   create table if not exists credit_sales(
-    id integer primary key, cust_id text not null, d text not null, n text not null,
+    id integer primary key, pump_id integer not null default 1, cust_id text not null, d text not null, n text not null,
     a real not null, veh text, worker_id integer not null, created integer not null,
-    status text not null default 'ok');
-  create table if not exists sections(name text primary key, ver integer not null, json text not null);
-  create table if not exists audit(id integer primary key, t integer not null, user_id integer, user_name text, action text not null, detail text);
+    status text not null default 'ok', fuel text, litres real);
+  create table if not exists sections(pump_id integer not null default 1, name text not null, ver integer not null, json text not null, primary key(pump_id, name));
+  create table if not exists audit(id integer primary key, pump_id integer not null default 1, t integer not null, user_id integer, user_name text, action text not null, detail text);
   create table if not exists duties(
-    id integer primary key, worker_id integer not null, d text not null, shift text not null,
+    id integer primary key, pump_id integer not null default 1, worker_id integer not null, d text not null, shift text not null,
     status text not null default 'open', cash real not null default 0, upi real not null default 0,
     card real not null default 0, note text, started integer not null, submitted integer,
-    closed_by integer, closed_at integer);
+    closed_by integer, closed_at integer, pay_json text, stock_done integer not null default 0, assigned_by integer);
   create table if not exists duty_lines(
     id integer primary key, duty_id integer not null, nozzle_id text not null,
     opening real, closing real, testing real not null default 0, rate real);
@@ -39,17 +46,18 @@ async function initDb() {
   create table if not exists duty_expenses(
     id integer primary key, duty_id integer not null, cat text not null, note text, amount real not null);
   create table if not exists days(
-    d text primary key, status text not null, closed_by integer, closed_at integer, approved_by integer, approved_at integer);
+    pump_id integer not null default 1, d text not null, status text not null, closed_by integer, closed_at integer, approved_by integer, approved_at integer, primary key(pump_id, d));
   create table if not exists dips(
-    id integer primary key, tank_id text not null, litres real not null, dip real,
-    note text, user_id integer not null, t integer not null);
-  create table if not exists pay_rates(worker_id integer not null, shift text not null, rate real not null, primary key(worker_id, shift));
+    id integer primary key, pump_id integer not null default 1, tank_id text not null, litres real not null, dip real,
+    note text, user_id integer not null, t integer not null, dens_obs real, temp real, d15 real);
+  create table if not exists pay_rates(pump_id integer not null default 1, worker_id integer not null, shift text not null, rate real not null, primary key(pump_id, worker_id, shift));
   create table if not exists pay_items(
-    id integer primary key, worker_id integer not null, month text not null,
+    id integer primary key, pump_id integer not null default 1, worker_id integer not null, month text not null,
     kind text not null check(kind in ('advance','bonus','waive','paid')),
     amount real not null, note text, d text not null, created integer not null);
   create table if not exists density_register(
     id integer primary key,
+    pump_id integer not null default 1,
     tank_id text not null,
     d text not null,
     t integer not null,
@@ -70,6 +78,27 @@ async function initDb() {
     chalan_no text,
     user_id integer,
     by_name text);
+  create table if not exists bank_deposits(
+    id integer primary key autoincrement,
+    pump_id integer not null default 1,
+    d text not null,
+    amount real not null,
+    bank_name text,
+    slip_no text,
+    deposited_by text,
+    note text,
+    created_at integer not null,
+    user_id integer
+  );
+  create table if not exists cash_flow_days(
+    pump_id integer not null default 1,
+    d text not null,
+    opening_cash real,
+    opening_manual integer not null default 0,
+    closing_cash real,
+    notes text,
+    primary key(pump_id, d)
+  );
   `);
 
   const addCol = (t, c, def) => {
@@ -78,17 +107,89 @@ async function initDb() {
         db.exec(`alter table ${t} add column ${c} ${def}`);
     } catch (e) {}
   };
-  addCol("credit_sales", "status", "text not null default 'ok'");
+  addCol("users", "pump_id", "integer not null default 1");
   addCol("users", "lang", "text not null default 'en'");
+  addCol("users", "uid", "text");
+  addCol("credit_sales", "pump_id", "integer not null default 1");
+  addCol("credit_sales", "status", "text not null default 'ok'");
+  addCol("credit_sales", "fuel", "text");
+  addCol("credit_sales", "litres", "real");
+  addCol("audit", "pump_id", "integer not null default 1");
+  addCol("duties", "pump_id", "integer not null default 1");
   addCol("duties", "pay_json", "text");
   addCol("duties", "stock_done", "integer not null default 0");
   addCol("duties", "assigned_by", "integer");
-  addCol("credit_sales", "fuel", "text");
-  addCol("credit_sales", "litres", "real");
+  addCol("dips", "pump_id", "integer not null default 1");
   addCol("dips", "dens_obs", "real");
   addCol("dips", "temp", "real");
   addCol("dips", "d15", "real");
+  addCol("pay_items", "pump_id", "integer not null default 1");
+  addCol("density_register", "pump_id", "integer not null default 1");
+  addCol("bank_deposits", "pump_id", "integer not null default 1");
+  addCol("cash_flow_days", "pump_id", "integer not null default 1");
+
+  // Migrate composite PK tables in SQLite if they lacked pump_id in PK
+  try {
+    const sCols = db.prepare("pragma table_info(sections)").all().map((x) => x.name);
+    if (!sCols.includes("pump_id")) {
+      db.exec(`
+        create table sections_new(pump_id integer not null default 1, name text not null, ver integer not null, json text not null, primary key(pump_id, name));
+        insert into sections_new(pump_id, name, ver, json) select 1, name, ver, json from sections;
+        drop table sections;
+        alter table sections_new rename to sections;
+      `);
+    }
+  } catch (e) {}
+
+  try {
+    const dCols = db.prepare("pragma table_info(days)").all().map((x) => x.name);
+    if (!dCols.includes("pump_id")) {
+      db.exec(`
+        create table days_new(pump_id integer not null default 1, d text not null, status text not null, closed_by integer, closed_at integer, approved_by integer, approved_at integer, primary key(pump_id, d));
+        insert into days_new(pump_id, d, status, closed_by, closed_at, approved_by, approved_at) select 1, d, status, closed_by, closed_at, approved_by, approved_at from days;
+        drop table days;
+        alter table days_new rename to days;
+      `);
+    }
+  } catch (e) {}
+
+  try {
+    const pCols = db.prepare("pragma table_info(pay_rates)").all().map((x) => x.name);
+    if (!pCols.includes("pump_id")) {
+      db.exec(`
+        create table pay_rates_new(pump_id integer not null default 1, worker_id integer not null, shift text not null, rate real not null, primary key(pump_id, worker_id, shift));
+        insert into pay_rates_new(pump_id, worker_id, shift, rate) select 1, worker_id, shift, rate from pay_rates;
+        drop table pay_rates;
+        alter table pay_rates_new rename to pay_rates;
+      `);
+    }
+  } catch (e) {}
+
+  // Ensure default pump exists
+  try {
+    const pCount = db.prepare("select count(*) n from pumps").get().n;
+    if (pCount === 0) {
+      db.prepare("insert into pumps(id, name, code, owner_id, created_at) values(1, 'Main Station', 'PUMP-001', 1, ?)").run(now());
+    }
+  } catch (e) {}
+
+  // Fix any null or 0 pump_id in existing data
+  try {
+    db.exec(`
+      update users set pump_id=1 where pump_id is null or pump_id=0;
+      update credit_sales set pump_id=1 where pump_id is null or pump_id=0;
+      update audit set pump_id=1 where pump_id is null or pump_id=0;
+      update duties set pump_id=1 where pump_id is null or pump_id=0;
+      update dips set pump_id=1 where pump_id is null or pump_id=0;
+      update pay_items set pump_id=1 where pump_id is null or pump_id=0;
+      update density_register set pump_id=1 where pump_id is null or pump_id=0;
+    `);
+  } catch (e) {}
+
   migrateOldState();
+  if (db.cloudSync) {
+    await db.cloudSync.initCloudSync(db);
+  }
 }
 
 const app = express();
@@ -124,7 +225,16 @@ const now = () => Math.floor(Date.now() / 1000);
 const DAY = 86400;
 const hs = (t) => crypto.createHash("sha256").update(t).digest("hex");
 const mob = (x) => String(x || "").replace(/\D/g, "").slice(-10);
-const pub = (u) => ({ id: u.id, name: u.name, mobile: u.mobile, role: u.role, lang: u.lang || "en" });
+const pub = (u) => ({
+  id: u.id,
+  name: u.name,
+  mobile: u.mobile,
+  role: u.role,
+  lang: u.lang || "en",
+  pump_id: u.pump_id || 1,
+  pump_name: u.pump_name || "Petrol Pump",
+  pump_code: u.pump_code || "PUMP-001"
+});
 const today = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
 const usersCount = () => db.prepare("select count(*) n from users").get().n;
 
@@ -138,8 +248,21 @@ function getUser(q) {
     t = q.headers.authorization.slice(7).trim();
   }
   if (!t) return null;
-  const r = db.prepare("select u.id,u.name,u.mobile,u.role,u.lang,u.active,s.exp from sessions s join users u on u.id=s.user_id where s.token=?").get(hs(t));
-  return r && r.active && r.exp >= now() ? r : null;
+  const r = db.prepare(`
+    select u.id, u.name, u.mobile, u.role, u.lang, u.active, u.pump_id,
+           coalesce(p.name, 'Station #' || u.pump_id) as pump_name,
+           coalesce(p.code, 'PUMP-' || u.pump_id) as pump_code,
+           s.exp
+    from sessions s
+    join users u on u.id = s.user_id
+    left join pumps p on p.id = u.pump_id
+    where s.token = ?
+  `).get(hs(t));
+  if (r && r.active && r.exp >= now()) {
+    r.pump_id = r.pump_id || 1;
+    return r;
+  }
+  return null;
 }
 const need = (...roles) => (q, s, n) => {
   const u = getUser(q);
@@ -166,29 +289,204 @@ const fails = new Map();
 const blocked = (k) => { const f = fails.get(k); return f && f.n >= 5 && Date.now() - f.t < 15 * 60e3; };
 const addFail = (k) => { const f = fails.get(k) || { n: 0, t: 0 }; f.n = Date.now() - f.t > 15 * 60e3 ? 1 : f.n + 1; f.t = Date.now(); fails.set(k, f); };
 
+let adminAuth = null;
+function getAdminAuth() {
+  if (!adminAuth) {
+    try {
+      const { initializeApp, getApps } = require("firebase-admin/app");
+      const { getAuth } = require("firebase-admin/auth");
+      const cfg = require("./firebase-applet-config.json");
+      if (!getApps().length) {
+        initializeApp({ projectId: cfg.projectId });
+      }
+      adminAuth = getAuth();
+    } catch (e) {
+      console.warn("[firebase-admin] initialization error:", e.message);
+    }
+  }
+  return adminAuth;
+}
+
+app.get("/api/firebase-config", (q, s) => {
+  try {
+    const cfg = require("./firebase-applet-config.json");
+    s.json({
+      apiKey: cfg.apiKey,
+      authDomain: cfg.authDomain,
+      projectId: cfg.projectId,
+      appId: cfg.appId,
+    });
+  } catch (e) {
+    s.status(404).json({ error: "Firebase config not found" });
+  }
+});
+
+function initPumpSections(pumpId, pumpName) {
+  const pName = pumpName || "Fuel Station";
+  const defaults = {
+    c: { c: [] },
+    inv: { inv: [] },
+    items: {
+      items: [
+        { id: 1, name: "2T Engine Oil 500ml", unit: "piece", sell: 180, buy: 140, stock: 24, low: 5, cat: "Engine oil", gst: 18, hsn: "2710" },
+        { id: 2, name: "4T Plus 1L", unit: "piece", sell: 390, buy: 310, stock: 18, low: 4, cat: "Engine oil", gst: 18, hsn: "2710" },
+        { id: 3, name: "Coolant Premix 1L", unit: "piece", sell: 220, buy: 165, stock: 12, low: 3, cat: "Coolant", gst: 18, hsn: "3820" },
+      ],
+      itemcats: ["Engine oil", "Coolant", "Grease", "Distilled Water", "Shop"]
+    },
+    sup: { sup: [] },
+    bk: { bk: [], ob: { Cash: 0, Bank: 0, UPI: 0 } },
+    biz: { biz: { name: pName, addr: "", gst: "" } },
+    tanks: {
+      tanks: [
+        { id: 1, name: "Tank 1 (MS)", fuel: "Petrol (MS)", capacity: 20000, chart: [{ cm: 0, l: 0 }, { cm: 100, l: 9500 }, { cm: 200, l: 20000 }] },
+        { id: 2, name: "Tank 2 (HSD)", fuel: "Diesel (HSD)", capacity: 25000, chart: [{ cm: 0, l: 0 }, { cm: 100, l: 12000 }, { cm: 200, l: 25000 }] }
+      ],
+      deliv: []
+    },
+    setup: {
+      nozzles: [
+        { id: 1, name: "MS Nozzle 1", fuel: "Petrol (MS)", tank_id: 1, open: 1000, active: true },
+        { id: 2, name: "MS Nozzle 2", fuel: "Petrol (MS)", tank_id: 1, open: 1000, active: true },
+        { id: 3, name: "HSD Nozzle 1", fuel: "Diesel (HSD)", tank_id: 2, open: 1000, active: true },
+        { id: 4, name: "HSD Nozzle 2", fuel: "Diesel (HSD)", tank_id: 2, open: 1000, active: true }
+      ],
+      rates: [
+        { id: 1, fuel: "Petrol (MS)", rate: 104.5, from: "2020-01-01" },
+        { id: 2, fuel: "Diesel (HSD)", rate: 92.5, from: "2020-01-01" }
+      ],
+      expcats: ["Tea and food", "Repairs", "Electricity", "Transport", "Staff welfare", "Stationery", "Other"],
+      paymodes: [
+        { key: "cash", name: "Cash", active: true },
+        { key: "upi", name: "UPI", active: true },
+        { key: "card", name: "Card", active: true }
+      ],
+      fuelprods: [
+        { name: "Petrol (MS)", unit: "L", dmin: 0.72, dmax: 0.775, dtol: 0.003 },
+        { name: "Diesel (HSD)", unit: "L", dmin: 0.82, dmax: 0.86, dtol: 0.003 }
+      ]
+    }
+  };
+
+  for (const [secName, secObj] of Object.entries(defaults)) {
+    writeSection(pumpId, secName, secObj);
+  }
+}
+
+app.post("/api/auth/google", async (q, s) => {
+  const { idToken } = q.body || {};
+  if (!idToken) return s.status(400).json({ error: "Missing ID token." });
+  const auth = getAdminAuth();
+  if (!auth) return s.status(500).json({ error: "Authentication service unavailable." });
+
+  try {
+    const decoded = await auth.verifyIdToken(idToken);
+    const uid = decoded.uid;
+    const email = decoded.email || "";
+    const name = decoded.name || (email ? email.split("@")[0] : "Google User");
+
+    let u = db.prepare(`
+      select u.id, u.name, u.mobile, u.role, u.lang, u.active, u.pump_id,
+             coalesce(p.name, 'Station #' || u.pump_id) as pump_name,
+             coalesce(p.code, 'PUMP-' || u.pump_id) as pump_code
+      from users u
+      left join pumps p on p.id = u.pump_id
+      where u.uid = ?
+    `).get(uid);
+
+    if (!u) {
+      // New SaaS customer onboarding via Google: create dedicated pump tenant
+      const pName = `${name}'s Station`;
+      const pCode = "PUMP-" + Math.floor(1000 + Math.random() * 9000);
+      const pumpId = db.prepare("insert into pumps(name, code, created_at) values(?,?,?)").run(pName, pCode, now()).lastInsertRowid;
+      const id = db.prepare("insert into users(uid, pump_id, name, mobile, role, active, lang) values(?,?,?,?,?,1,'en')")
+        .run(uid, pumpId, name, "", "owner").lastInsertRowid;
+      db.prepare("update pumps set owner_id=? where id=?").run(id, pumpId);
+      initPumpSections(pumpId, pName);
+      u = db.prepare(`
+        select u.id, u.name, u.mobile, u.role, u.lang, u.active, u.pump_id,
+               coalesce(p.name, 'Station #' || u.pump_id) as pump_name,
+               coalesce(p.code, 'PUMP-' || u.pump_id) as pump_code
+        from users u
+        left join pumps p on p.id = u.pump_id
+        where u.id = ?
+      `).get(id);
+    }
+
+    if (!u.active) return s.status(403).json({ error: "Account deactivated." });
+
+    const token = startSession(q, s, u.id);
+    audit(u, "login", "Logged in via Google");
+    s.json({ user: pub(u), token });
+  } catch (err) {
+    console.error("Google Auth verification failed:", err.message);
+    s.status(401).json({ error: "Invalid Google token." });
+  }
+});
+
 app.get("/api/me", (q, s) => {
   const u = getUser(q);
   s.json({ user: u ? pub(u) : null, setup: usersCount() === 0, biz: bizDate() });
 });
-app.post("/api/setup", (q, s) => {
-  if (usersCount() > 0) return s.status(403).json({ error: "Setup is already done." });
-  const { name, mobile, password } = q.body || {};
-  const e = checkUser(name, mob(mobile), password);
+
+// SaaS registration: creates an isolated pump station tenant and owner account
+app.post(["/api/signup", "/api/register", "/api/setup"], (q, s) => {
+  const { name, mobile, password, pump_name, pump_code } = q.body || {};
+  const m = mob(mobile);
+  const e = checkUser(name, m, password);
   if (e) return s.status(400).json({ error: e });
-  const id = db.prepare("insert into users(name,mobile,hash,role) values(?,?,?,'owner')").run(String(name).trim(), mob(mobile), bcrypt.hashSync(password, 10)).lastInsertRowid;
-  const token = startSession(q, s, id);
-  s.json({ user: { id, name: String(name).trim(), mobile: mob(mobile), role: "owner" }, token });
+
+  const pName = String(pump_name || "").trim().slice(0, 80) || `${String(name).trim()}'s Station`;
+  let pCode = String(pump_code || "").trim().toUpperCase().slice(0, 20);
+  if (!pCode) {
+    pCode = "PUMP-" + Math.floor(100 + Math.random() * 900);
+  }
+  if (db.prepare("select 1 from pumps where code=?").get(pCode)) {
+    pCode = "PUMP-" + Math.floor(1000 + Math.random() * 9000);
+  }
+
+  // If mobile already registered as owner, suggest login
+  const existing = db.prepare("select * from users where mobile=? and role='owner'").get(m);
+  if (existing) {
+    return s.status(409).json({ error: "An owner account with this mobile number already exists. Please log in." });
+  }
+
+  const pumpId = db.prepare("insert into pumps(name, code, created_at) values(?,?,?)").run(pName, pCode, now()).lastInsertRowid;
+  const userId = db.prepare("insert into users(pump_id, name, mobile, hash, role, active, lang) values(?,?,?,?,?,1,'en')")
+    .run(pumpId, String(name).trim(), m, bcrypt.hashSync(password, 10), "owner").lastInsertRowid;
+  db.prepare("update pumps set owner_id=? where id=?").run(userId, pumpId);
+
+  initPumpSections(pumpId, pName);
+
+  const token = startSession(q, s, userId);
+  const u = db.prepare(`
+    select u.id, u.name, u.mobile, u.role, u.lang, u.active, u.pump_id,
+           p.name as pump_name, p.code as pump_code
+    from users u left join pumps p on p.id=u.pump_id where u.id=?
+  `).get(userId);
+  audit(u, "signup", `Registered new pump station: ${pName} (${pCode})`);
+  s.json({ user: pub(u), token });
 });
+
 app.post("/api/login", (q, s) => {
   const m = mob(q.body && q.body.mobile), p = String((q.body && q.body.password) || ""), k = q.ip + "|" + m;
   if (blocked(k)) return s.status(429).json({ error: "Too many wrong attempts. Try again in 15 minutes." });
-  const u = db.prepare("select * from users where mobile=?").get(m);
-  if (!u || !u.active || !bcrypt.compareSync(p, u.hash)) { addFail(k); return s.status(401).json({ error: "Wrong mobile number or password." }); }
+  const u = db.prepare(`
+    select u.*, coalesce(p.name, 'Station #' || u.pump_id) as pump_name, coalesce(p.code, 'PUMP-' || u.pump_id) as pump_code
+    from users u
+    left join pumps p on p.id=u.pump_id
+    where u.mobile=?
+  `).get(m);
+  if (!u || !u.active || !bcrypt.compareSync(p, u.hash)) {
+    addFail(k);
+    return s.status(401).json({ error: "Wrong mobile number or password." });
+  }
   fails.delete(k);
   const token = startSession(q, s, u.id);
   audit(u, "login", "Logged in");
   s.json({ user: pub(u), token });
 });
+
 app.post("/api/logout", (q, s) => {
   let t = cookie(q, "sid");
   if (!t && q.headers.authorization && q.headers.authorization.startsWith("Bearer ")) {
@@ -198,12 +496,14 @@ app.post("/api/logout", (q, s) => {
   s.setHeader("Set-Cookie", "sid=; HttpOnly; SameSite=None; Secure; Path=/; Max-Age=0");
   s.json({ ok: true });
 });
+
 app.post("/api/lang", need(), (q, s) => {
   const lang = q.body && q.body.lang;
   if (!["en", "mr", "hi"].includes(lang)) return s.status(400).json({ error: "Unknown language." });
   db.prepare("update users set lang=? where id=?").run(lang, q.user.id);
   s.json({ ok: true });
 });
+
 app.post("/api/password", need(), (q, s) => {
   const { old, password } = q.body || {};
   const u = db.prepare("select * from users where id=?").get(q.user.id);
@@ -215,36 +515,109 @@ app.post("/api/password", need(), (q, s) => {
   s.json({ ok: true });
 });
 
-// ---- Team (owner only)
-app.get("/api/users", need("owner", "manager"), (q, s) =>
-  s.json(db.prepare(q.user.role === "owner" ? "select id,name,mobile,role,active from users order by id" : "select id,name,mobile,role,active from users where role='worker' order by id").all()));
+// Multi-pump SaaS management endpoints
+app.get("/api/pumps", need("owner"), (q, s) => {
+  const rows = db.prepare("select id, name, code, created_at from pumps where owner_id=? or id=? order by id").all(q.user.id, q.user.pump_id);
+  s.json(rows);
+});
+
+app.post("/api/pumps", need("owner"), (q, s) => {
+  const { name, code } = q.body || {};
+  const pName = String(name || "").trim().slice(0, 80);
+  if (!pName) return s.status(400).json({ error: "Enter pump station name." });
+  let pCode = String(code || "").trim().toUpperCase().slice(0, 20);
+  if (!pCode) {
+    pCode = "PUMP-" + Math.floor(1000 + Math.random() * 9000);
+  }
+  if (db.prepare("select 1 from pumps where code=?").get(pCode)) {
+    return s.status(409).json({ error: "Pump code is already in use. Choose another code." });
+  }
+  const pumpId = db.prepare("insert into pumps(name, code, owner_id, created_at) values(?,?,?,?)").run(pName, pCode, q.user.id, now()).lastInsertRowid;
+  initPumpSections(pumpId, pName);
+  s.json({ pump: { id: pumpId, name: pName, code: pCode }, id: pumpId, name: pName, code: pCode });
+});
+
+app.post("/api/pumps/switch", need("owner"), (q, s) => {
+  const pumpId = +q.body.pump_id;
+  const p = db.prepare("select * from pumps where id=?").get(pumpId);
+  if (!p) return s.status(404).json({ error: "Pump station not found." });
+  if (p.owner_id !== q.user.id && p.id !== q.user.pump_id) {
+    return s.status(403).json({ error: "Access denied to this pump station." });
+  }
+  db.prepare("update users set pump_id=? where id=?").run(p.id, q.user.id);
+  const u = db.prepare(`
+    select u.id, u.name, u.mobile, u.role, u.lang, u.active, u.pump_id,
+           p.name as pump_name, p.code as pump_code
+    from users u left join pumps p on p.id=u.pump_id where u.id=?
+  `).get(q.user.id);
+  audit(u, "switch pump", `Switched active station to: ${p.name} (${p.code})`);
+  s.json({ user: pub(u) });
+});
+
+app.get("/api/pump", need("owner", "manager"), (q, s) => {
+  const p = db.prepare("select * from pumps where id=?").get(q.user.pump_id);
+  s.json(p || { id: q.user.pump_id, name: q.user.pump_name, code: q.user.pump_code });
+});
+
+app.patch("/api/pump", need("owner"), (q, s) => {
+  const { name, code } = q.body || {};
+  const pid = q.user.pump_id;
+  if (name) {
+    db.prepare("update pumps set name=? where id=?").run(String(name).trim().slice(0, 80), pid);
+  }
+  if (code) {
+    const cd = String(code).trim().toUpperCase().slice(0, 20);
+    const ex = db.prepare("select id from pumps where code=? and id<>?").get(cd, pid);
+    if (ex) return s.status(409).json({ error: "Pump code is already in use." });
+    db.prepare("update pumps set code=? where id=?").run(cd, pid);
+  }
+  const p = db.prepare("select * from pumps where id=?").get(pid);
+  s.json(p);
+});
+
+// ---- Team (strictly isolated to q.user.pump_id)
+app.get("/api/users", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
+  s.json(db.prepare(
+    q.user.role === "owner"
+      ? "select id,name,mobile,role,active,pump_id from users where pump_id=? order by id"
+      : "select id,name,mobile,role,active,pump_id from users where pump_id=? and role='worker' order by id"
+  ).all(pid));
+});
+
 app.post("/api/users", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const { name, mobile, password, role } = q.body || {};
   const m = mob(mobile);
   if (!["manager", "worker"].includes(role)) return s.status(400).json({ error: "Choose manager or worker." });
   if (q.user.role === "manager" && role !== "worker") return s.status(403).json({ error: "Managers can add workers only." });
   const e = checkUser(name, m, password);
   if (e) return s.status(400).json({ error: e });
-  if (db.prepare("select 1 from users where mobile=?").get(m)) return s.status(409).json({ error: "This mobile number is already registered." });
-  db.prepare("insert into users(name,mobile,hash,role) values(?,?,?,?)").run(String(name).trim(), m, bcrypt.hashSync(password, 10), role);
+  if (db.prepare("select 1 from users where pump_id=? and mobile=?").get(pid, m)) {
+    return s.status(409).json({ error: "This mobile number is already registered at this pump station." });
+  }
+  db.prepare("insert into users(pump_id,name,mobile,hash,role) values(?,?,?,?,?)")
+    .run(pid, String(name).trim(), m, bcrypt.hashSync(password, 10), role);
   s.json({ ok: true });
 });
+
 app.patch("/api/users/:id", need("owner", "manager"), (q, s) => {
-  const id = +q.params.id, u = db.prepare("select * from users where id=?").get(id);
-  if (!u) return s.status(404).json({ error: "User not found." });
+  const pid = q.user.pump_id;
+  const id = +q.params.id, u = db.prepare("select * from users where id=? and pump_id=?").get(id, pid);
+  if (!u) return s.status(404).json({ error: "User not found in this pump station team." });
   if (q.user.role === "manager" && u.role !== "worker") return s.status(403).json({ error: "Managers can change workers only." });
   const { active, password, name } = q.body || {};
   if (active !== undefined) {
     if (u.id === q.user.id) return s.status(400).json({ error: "You cannot deactivate your own account." });
-    db.prepare("update users set active=? where id=?").run(active ? 1 : 0, id);
+    db.prepare("update users set active=? where id=? and pump_id=?").run(active ? 1 : 0, id, pid);
     if (!active) db.prepare("delete from sessions where user_id=?").run(id);
   }
   if (password !== undefined) {
     if (typeof password !== "string" || password.length < 6 || password.length > 100) return s.status(400).json({ error: "Password must be at least 6 characters." });
-    db.prepare("update users set hash=? where id=?").run(bcrypt.hashSync(password, 10), id);
+    db.prepare("update users set hash=? where id=? and pump_id=?").run(bcrypt.hashSync(password, 10), id, pid);
     db.prepare("delete from sessions where user_id=?").run(id);
   }
-  if (name !== undefined && String(name).trim()) db.prepare("update users set name=? where id=?").run(String(name).trim().slice(0, 60), id);
+  if (name !== undefined && String(name).trim()) db.prepare("update users set name=? where id=? and pump_id=?").run(String(name).trim().slice(0, 60), id, pid);
   s.json({ ok: true });
 });
 
@@ -255,17 +628,28 @@ const SECTIONS = { c: ["c"], inv: ["inv"], items: ["items", "itemcats"], sup: ["
 const ARRAY_KEYS = new Set(["c", "inv", "items", "sup", "bk", "tanks", "deliv", "nozzles", "rates", "expcats", "paymodes", "fuelprods", "itemcats"]);
 const LABEL = { c: "Customers", inv: "Invoices", items: "Stock items", sup: "Suppliers", bk: "Book entries", ob: "Opening balances", biz: "Business details", tanks: "Tanks", deliv: "Fuel deliveries", nozzles: "Nozzles", rates: "Fuel rates", expcats: "Expense categories", paymodes: "Payment modes", fuelprods: "Fuel products", itemcats: "Product categories" };
 function audit(u, action, detail) {
-  try { db.prepare("insert into audit(t,user_id,user_name,action,detail) values(?,?,?,?,?)").run(now(), u ? u.id : null, u ? u.name : "", action, String(detail || "").slice(0, 600)); } catch (e) { /* never block the request */ }
+  try {
+    const pid = u && u.pump_id ? u.pump_id : 1;
+    db.prepare("insert into audit(pump_id,t,user_id,user_name,action,detail) values(?,?,?,?,?,?)")
+      .run(pid, now(), u ? u.id : null, u ? u.name : "", action, String(detail || "").slice(0, 600));
+  } catch (e) { /* never block the request */ }
 }
-function readSections() {
+function readSections(pumpId = 1) {
   const state = {}, vers = {};
-  db.prepare("select * from sections").all().forEach((r) => { vers[r.name] = r.ver; Object.assign(state, JSON.parse(r.json)); });
+  db.prepare("select name, ver, json from sections where pump_id=?").all(pumpId).forEach((r) => {
+    vers[r.name] = r.ver;
+    try { Object.assign(state, JSON.parse(r.json)); } catch (e) {}
+  });
   return { state, vers };
 }
-const stateNow = () => readSections().state;
-function writeSection(name, obj) {
-  const r = db.prepare("select ver from sections where name=?").get(name), ver = (r ? r.ver : 0) + 1;
-  db.prepare("insert into sections(name,ver,json) values(?,?,?) on conflict(name) do update set ver=excluded.ver, json=excluded.json").run(name, ver, JSON.stringify(obj));
+const stateNow = (pumpId = 1) => readSections(pumpId).state;
+function writeSection(pumpId, name, obj) {
+  const r = db.prepare("select ver from sections where pump_id=? and name=?").get(pumpId, name);
+  const ver = (r ? r.ver : 0) + 1;
+  db.prepare(`
+    insert into sections(pump_id,name,ver,json) values(?,?,?,?)
+    on conflict(pump_id,name) do update set ver=excluded.ver, json=excluded.json
+  `).run(pumpId, name, ver, JSON.stringify(obj));
   return ver;
 }
 // One-time move from the old single-record layout
@@ -278,7 +662,7 @@ function migrateOldState() {
     for (const [n, keys] of Object.entries(SECTIONS)) {
       const o = {};
       keys.forEach((k) => { if (st[k] !== undefined) o[k] = st[k]; });
-      db.prepare("insert into sections values(?,?,?)").run(n, 1, JSON.stringify(o));
+      db.prepare("insert into sections(pump_id,name,ver,json) values(1,?,?,?)").run(n, 1, JSON.stringify(o));
     }
   })();
 }
@@ -307,10 +691,11 @@ function diffSummary(before, after) {
   return out.join("; ");
 }
 app.get("/api/state", need("owner", "manager"), (q, s) => {
-  const { state, vers } = readSections();
+  const { state, vers } = readSections(q.user.pump_id);
   s.json(Object.keys(vers).length ? { vers, state } : { vers: {}, state: null });
 });
 app.put("/api/state", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const { vers, changes } = q.body || {};
   const names = changes && typeof changes === "object" ? Object.keys(changes) : [];
   const bad = () => s.status(400).json({ error: "Invalid data." });
@@ -320,13 +705,18 @@ app.put("/api/state", need("owner", "manager"), (q, s) => {
     if (ARRAY_KEYS.has(k) ? !Array.isArray(v) : v === null || typeof v !== "object" || Array.isArray(v)) return bad();
   }
   const res = db.transaction(() => {
-    const conflicts = names.filter((n) => { const r = db.prepare("select ver from sections where name=?").get(n); return +((vers || {})[n] || 0) !== (r ? r.ver : 0); });
+    const conflicts = names.filter((n) => {
+      const r = db.prepare("select ver from sections where pump_id=? and name=?").get(pid, n);
+      return +((vers || {})[n] || 0) !== (r ? r.ver : 0);
+    });
     if (conflicts.length) return { conflicts };
     const out = {};
     names.forEach((n) => {
-      const prev = db.prepare("select json from sections where name=?").get(n), before = prev ? JSON.parse(prev.json) : {}, obj = {};
+      const prev = db.prepare("select json from sections where pump_id=? and name=?").get(pid, n);
+      const before = prev ? JSON.parse(prev.json) : {};
+      const obj = {};
       SECTIONS[n].forEach((k) => (obj[k] = changes[n][k]));
-      out[n] = writeSection(n, obj);
+      out[n] = writeSection(pid, n, obj);
       const d = diffSummary(before, obj);
       if (d) audit(q.user, "data", d);
     });
@@ -338,10 +728,11 @@ app.put("/api/state", need("owner", "manager"), (q, s) => {
 
 // ---- Audit log (owner)
 app.get("/api/audit", need("owner"), (q, s) => {
+  const pid = q.user.pump_id;
   const lim = Math.min(500, +q.query.limit || 200), t = String(q.query.q || "").trim(), like = `%${t}%`;
   s.json(t
-    ? db.prepare("select * from audit where action like ? or detail like ? or user_name like ? order by id desc limit ?").all(like, like, like, lim)
-    : db.prepare("select * from audit order by id desc limit ?").all(lim));
+    ? db.prepare("select * from audit where pump_id=? and (action like ? or detail like ? or user_name like ?) order by id desc limit ?").all(pid, like, like, like, lim)
+    : db.prepare("select * from audit where pump_id=? order by id desc limit ?").all(pid, lim));
 });
 const money = (n) => "\u20b9" + Math.round(+n || 0);
 const AUD = {
@@ -367,20 +758,21 @@ const AUD = {
   "DELETE /api/dips/:id": (q) => `Deleted dip reading #${q.params.id}`,
 };
 // ---- Credit customers and worker credit sales
-function customers() {
-  const st = stateNow();
+function customers(pumpId = 1) {
+  const st = stateNow(pumpId);
   const sums = {};
-  db.prepare("select cust_id, sum(a) t from credit_sales where status='ok' group by cust_id").all().forEach((x) => (sums[x.cust_id] = x.t));
+  db.prepare("select cust_id, sum(a) t from credit_sales where pump_id=? and status='ok' group by cust_id").all(pumpId).forEach((x) => (sums[x.cust_id] = x.t));
   return (st.c || []).map((c) => {
     const due = (c.e || []).reduce((a, x) => a + (x.t === "sale" ? x.a : -x.a), 0) + (sums[String(c.id)] || 0);
     return { id: c.id, name: c.name, active: c.active !== false, veh: c.veh || [], available: Math.round(((c.limit || 0) - due) * 100) / 100 };
   });
 }
-app.get("/api/fuels", need(), (q, s) => { const st = stateNow(); s.json([...new Set((st.nozzles || []).filter((n) => n.active !== false).map((n) => n.fuel))].map((name) => ({ name, unit: unitOf(st, name) }))); });
-app.get("/api/customers", need(), (q, s) => s.json(customers().filter((c) => c.active)));
+app.get("/api/fuels", need(), (q, s) => { const st = stateNow(q.user.pump_id); s.json([...new Set((st.nozzles || []).filter((n) => n.active !== false).map((n) => n.fuel))].map((name) => ({ name, unit: unitOf(st, name) }))); });
+app.get("/api/customers", need(), (q, s) => s.json(customers(q.user.pump_id).filter((c) => c.active)));
 app.post("/api/credit-sales", need(), (q, s) => {
+  const pid = q.user.pump_id;
   const { cust_id, n, a, veh, force, fuel, litres } = q.body || {};
-  const c = customers().find((x) => String(x.id) === String(cust_id));
+  const c = customers(pid).find((x) => String(x.id) === String(cust_id));
   const fu = String(fuel || "").trim().slice(0, 30), lt = fu && litres !== "" && litres != null ? Math.round(+litres * 100) / 100 : null;
   const amt = Math.round(+a * 100) / 100, item = String(n || "").trim() || (fu && lt > 0 ? `${fu} ${lt} L` : "");
   if (!c) return s.status(400).json({ error: "Choose a customer from the list." });
@@ -392,27 +784,30 @@ app.post("/api/credit-sales", need(), (q, s) => {
   // Workers cannot exceed a customer's limit: the sale waits for a manager or owner to approve it.
   if (over && !worker && !force) return s.status(409).json({ error: "over_limit", available: c.available });
   const status = over && worker ? "pending" : "ok";
-  const id = db.prepare("insert into credit_sales(cust_id,d,n,a,veh,worker_id,created,status,fuel,litres) values(?,?,?,?,?,?,?,?,?,?)")
-    .run(String(c.id), bizDate(), item, amt, String(veh || "").trim().toUpperCase().slice(0, 20), q.user.id, now(), status, fu || null, lt).lastInsertRowid;
+  const id = db.prepare("insert into credit_sales(pump_id,cust_id,d,n,a,veh,worker_id,created,status,fuel,litres) values(?,?,?,?,?,?,?,?,?,?,?)")
+    .run(pid, String(c.id), bizDate(), item, amt, String(veh || "").trim().toUpperCase().slice(0, 20), q.user.id, now(), status, fu || null, lt).lastInsertRowid;
   s.json({ id, pending: status === "pending", available: Math.round((status === "ok" ? c.available - amt : c.available) * 100) / 100 });
 });
-app.get("/api/credit-sales", need("owner", "manager"), (q, s) =>
-  s.json(db.prepare("select cs.id,cs.cust_id,cs.d,cs.n,cs.a,cs.veh,cs.fuel,cs.litres,cs.status,u.name worker from credit_sales cs join users u on u.id=cs.worker_id where cs.status<>'rejected' order by cs.id").all()));
+app.get("/api/credit-sales", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
+  s.json(db.prepare("select cs.id,cs.cust_id,cs.d,cs.n,cs.a,cs.veh,cs.fuel,cs.litres,cs.status,u.name worker from credit_sales cs join users u on u.id=cs.worker_id where cs.pump_id=? and cs.status<>'rejected' order by cs.id").all(pid));
+});
 app.get("/api/my-credit-sales", need(), (q, s) => {
+  const pid = q.user.pump_id;
   const names = {};
-  customers().forEach((c) => (names[String(c.id)] = c.name));
-  const rows = db.prepare("select id,cust_id,d,n,a,veh,fuel,litres,status from credit_sales where worker_id=? order by id desc limit 50").all(q.user.id);
+  customers(pid).forEach((c) => (names[String(c.id)] = c.name));
+  const rows = db.prepare("select id,cust_id,d,n,a,veh,fuel,litres,status from credit_sales where pump_id=? and worker_id=? order by id desc limit 50").all(pid, q.user.id);
   s.json(rows.map((r) => ({ ...r, cname: names[r.cust_id] || "Customer" })));
 });
 const decide = (to) => (q, s) => {
-  const r = db.prepare("update credit_sales set status=? where id=? and status='pending'").run(to, +q.params.id);
+  const r = db.prepare("update credit_sales set status=? where id=? and pump_id=? and status='pending'").run(to, +q.params.id, q.user.pump_id);
   if (!r.changes) return s.status(404).json({ error: "This sale is no longer waiting for approval." });
   s.json({ ok: true });
 };
 app.post("/api/credit-sales/:id/approve", need("owner", "manager"), decide("ok"));
 app.post("/api/credit-sales/:id/reject", need("owner", "manager"), decide("rejected"));
 app.delete("/api/credit-sales/:id", need("owner", "manager"), (q, s) => {
-  db.prepare("delete from credit_sales where id=?").run(+q.params.id);
+  db.prepare("delete from credit_sales where id=? and pump_id=?").run(+q.params.id, q.user.pump_id);
   s.json({ ok: true });
 });
 
@@ -427,7 +822,7 @@ const bizDate = () => new Date(Date.now() - 6 * 3600e3).toLocaleDateString("en-C
 const DEFMODES = [{ key: "cash", name: "Cash", active: true }, { key: "upi", name: "UPI", active: true }, { key: "card", name: "Card", active: true }];
 const allModes = (st) => (st.paymodes && st.paymodes.length ? st.paymodes : DEFMODES);
 const activeModes = (st) => allModes(st).filter((m) => m.active !== false || m.key === "cash");
-function nozzleMap(st = stateNow()) {
+function nozzleMap(st = stateNow(1)) {
   const m = {};
   (st.nozzles || []).forEach((n) => (m[String(n.id)] = n));
   return m;
@@ -449,12 +844,13 @@ function fuelRateFor(st, fuel, date) {
   return latest ? +latest.rate : null;
 }
 const unitOf = (st, fuel) => { const p = (st.fuelprods || []).find((x) => x.name === fuel); return (p && p.unit) || "L"; };
-function lastClose(nid) {
-  return db.prepare("select dl.closing c from duty_lines dl join duties d on d.id=dl.duty_id where dl.nozzle_id=? and d.status in ('submitted','closed') and dl.closing is not null order by d.submitted desc, dl.id desc limit 1").get(String(nid)) || {};
+function lastClose(nid, pumpId = 1) {
+  return db.prepare("select dl.closing c from duty_lines dl join duties d on d.id=dl.duty_id where d.pump_id=? and dl.nozzle_id=? and d.status in ('submitted','closed') and dl.closing is not null order by d.submitted desc, dl.id desc limit 1").get(pumpId, String(nid)) || {};
 }
-const dayStatus = (d) => (db.prepare("select status from days where d=?").get(d) || { status: "open" }).status;
-function detail(d) {
-  const st = stateNow(), nm = nozzleMap(st);
+const dayStatus = (d, pumpId = 1) => (db.prepare("select status from days where pump_id=? and d=?").get(pumpId, d) || { status: "open" }).status;
+function detail(d, pumpId) {
+  const pid = pumpId || d.pump_id || 1;
+  const st = stateNow(pid), nm = nozzleMap(st);
   const lines = db.prepare("select * from duty_lines where duty_id=? order by id").all(d.id).map((l) => {
     const lt = l.closing == null ? 0 : r2(l.closing - l.opening - l.testing), n = nm[l.nozzle_id] || {};
     return { ...l, nozzle: n.name || "Nozzle", fuel: n.fuel || "", unit: unitOf(st, n.fuel), litres: lt, amount: r2(lt * (l.rate || 0)) };
@@ -463,21 +859,22 @@ function detail(d) {
   const expenses = db.prepare("select * from duty_expenses where duty_id=? order by id").all(d.id);
   const sales = r2(lines.reduce((a, l) => a + l.amount, 0)), litres = r2(lines.filter((l) => l.unit === "L").reduce((a, l) => a + l.litres, 0));
   const lube = r2(items.reduce((a, i) => a + i.amount, 0)), exp = r2(expenses.reduce((a, e) => a + e.amount, 0));
-  const credit = r2(db.prepare("select coalesce(sum(a),0) t from credit_sales where worker_id=? and status='ok' and created>=? and created<=?").get(d.worker_id, d.started, d.submitted || now()).t);
+  const credit = r2(db.prepare("select coalesce(sum(a),0) t from credit_sales where pump_id=? and worker_id=? and status='ok' and created>=? and created<=?").get(pid, d.worker_id, d.started, d.submitted || now()).t);
   const pay = d.pay_json ? JSON.parse(d.pay_json) : { cash: d.cash, upi: d.upi, card: d.card };
   const collected = r2(Object.values(pay).reduce((a, x) => a + (+x || 0), 0));
   const expected = r2(sales + lube - credit - exp);
-  const w = db.prepare("select name from users where id=?").get(d.worker_id);
+  const w = db.prepare("select name from users where id=? and pump_id=?").get(d.worker_id, pid);
   return {
     id: d.id, d: d.d, shift: d.shift, status: d.status, worker_id: d.worker_id, worker: w ? w.name : "", pay,
     cash: +pay.cash || 0, upi: +pay.upi || 0, card: +pay.card || 0, note: d.note || "",
     lines, items, expenses, litres, sales, lube, exp, credit, expected, collected, diff: r2(collected - expected),
+    pump_id: pid
   };
 }
 // Updates a duty's nozzle readings, shop items, expenses and collections.
 // Workers change closing/testing only; managers (full) can also change opening and rate.
-function saveDuty(id, b, strict, full) {
-  const st = stateNow(), nm = nozzleMap(st), cur = db.prepare("select * from duty_lines where duty_id=? order by id").all(id);
+function saveDuty(id, b, strict, full, pumpId = 1) {
+  const st = stateNow(pumpId), nm = nozzleMap(st), cur = db.prepare("select * from duty_lines where duty_id=? order by id").all(id);
   const src = Array.isArray(b.lines) ? b.lines : [], ups = [];
   const rd = (v) => (v === "" || v === null || v === undefined ? null : num(v));
   for (const row of cur) {
@@ -532,22 +929,23 @@ function saveDuty(id, b, strict, full) {
     items.forEach((x) => db.prepare("insert into duty_items(duty_id,item_id,name,qty,price) values(?,?,?,?,?)").run(id, x.item_id, x.name, x.qty, x.price));
     db.prepare("delete from duty_expenses where duty_id=?").run(id);
     exps.forEach((x) => db.prepare("insert into duty_expenses(duty_id,cat,note,amount) values(?,?,?,?)").run(id, x.cat, x.note, x.amount));
-    db.prepare("update duties set pay_json=?, cash=?, upi=?, card=?, note=? where id=?").run(JSON.stringify(pay), pay.cash || 0, pay.upi || 0, pay.card || 0, String(b.note || "").slice(0, 200), id);
+    db.prepare("update duties set pay_json=?, cash=?, upi=?, card=?, note=? where id=? and pump_id=?").run(JSON.stringify(pay), pay.cash || 0, pay.upi || 0, pay.card || 0, String(b.note || "").slice(0, 200), id, pumpId);
   })();
   return null;
 }
 // Lube and shop stock moves when a duty is closed (and comes back if the owner reopens it).
-function adjustStock(duty, sign) {
-  const items = db.prepare("select * from duty_items where duty_id=?").all(duty.id), r = db.prepare("select json from sections where name='items'").get();
+function adjustStock(duty, sign, pumpId) {
+  const pid = pumpId || duty.pump_id || 1;
+  const items = db.prepare("select * from duty_items where duty_id=?").all(duty.id), r = db.prepare("select json from sections where pump_id=? and name='items'").get(pid);
   if (!items.length || !r) return;
   const o = JSON.parse(r.json);
   items.forEach((x) => { const it = (o.items || []).find((i) => String(i.id) === x.item_id); if (it) it.stock = Math.max(0, r2(+it.stock + sign * x.qty)); });
-  writeSection("items", o);
-  audit(null, "stock", `${sign < 0 ? "Deducted" : "Restored"} lube and shop stock for duty #${duty.id}`);
+  writeSection(pid, "items", o);
+  audit({ pump_id: pid }, "stock", `${sign < 0 ? "Deducted" : "Restored"} lube and shop stock for duty #${duty.id}`);
 }
-const openDuty = (uid) => db.prepare("select * from duties where worker_id=? and status='open' order by id desc limit 1").get(uid);
+const openDuty = (uid, pumpId = 1) => db.prepare("select * from duties where pump_id=? and worker_id=? and status='open' order by id desc limit 1").get(pumpId, uid);
 const mine = (q, s, n) => {
-  const d = db.prepare("select * from duties where id=? and worker_id=? and status='open'").get(+q.params.id, q.user.id);
+  const d = db.prepare("select * from duties where id=? and pump_id=? and worker_id=? and status='open'").get(+q.params.id, q.user.pump_id, q.user.id);
   if (!d) return s.status(404).json({ error: "This duty is not open." });
   q.duty = d; n();
 };
@@ -557,125 +955,135 @@ const fillInfo = (st) => ({
   items: (st.items || []).map((i) => ({ id: i.id, name: i.name, unit: i.unit, sell: i.sell, stock: i.stock })),
 });
 app.get("/api/duty/current", need(), (q, s) => {
-  const d = openDuty(q.user.id), st = stateNow();
-  const recent = db.prepare("select * from duties where worker_id=? and status<>'open' order by id desc limit 8").all(q.user.id).map(detail);
-  s.json({ duty: d ? detail(d) : null, ...fillInfo(st), recent });
+  const pid = q.user.pump_id;
+  const d = openDuty(q.user.id, pid), st = stateNow(pid);
+  const recent = db.prepare("select * from duties where pump_id=? and worker_id=? and status<>'open' order by id desc limit 8").all(pid, q.user.id).map((x) => detail(x, pid));
+  s.json({ duty: d ? detail(d, pid) : null, ...fillInfo(st), recent });
 });
 app.get("/api/my-duties/:id", need(), (q, s) => {
-  const d = db.prepare("select * from duties where id=? and worker_id=? and status<>'open'").get(+q.params.id, q.user.id);
+  const pid = q.user.pump_id;
+  const d = db.prepare("select * from duties where id=? and pump_id=? and worker_id=? and status<>'open'").get(+q.params.id, pid, q.user.id);
   if (!d) return s.status(404).json({ error: "Duty not found." });
-  s.json({ duty: detail(d), modes: allModes(stateNow()).map((m) => ({ key: m.key, name: m.name })) });
+  s.json({ duty: detail(d, pid), modes: allModes(stateNow(pid)).map((m) => ({ key: m.key, name: m.name })) });
 });
 app.put("/api/duty/:id", need(), mine, (q, s) => {
-  const e = saveDuty(q.duty.id, q.body || {}, false, false);
+  const e = saveDuty(q.duty.id, q.body || {}, false, false, q.user.pump_id);
   if (e) return s.status(400).json({ error: e });
   s.json({ ok: true });
 });
 app.post("/api/duty/:id/submit", need(), mine, (q, s) => {
-  const e = saveDuty(q.duty.id, q.body || {}, true, false);
+  const pid = q.user.pump_id;
+  const e = saveDuty(q.duty.id, q.body || {}, true, false, pid);
   if (e) return s.status(400).json({ error: e });
-  db.prepare("update duties set status='submitted', submitted=? where id=?").run(now(), q.duty.id);
+  db.prepare("update duties set status='submitted', submitted=? where id=? and pump_id=?").run(now(), q.duty.id, pid);
   s.json({ ok: true });
 });
 
 // ---- Manager: assign nozzles, review, close
 app.get("/api/assign-info", need("owner", "manager"), (q, s) => {
-  const st = stateNow(), d = bizDate();
+  const pid = q.user.pump_id, st = stateNow(pid), d = bizDate();
   const busy = {};
-  db.prepare("select dl.nozzle_id n, u.name w from duty_lines dl join duties du on du.id=dl.duty_id join users u on u.id=du.worker_id where du.status in ('open','submitted')").all().forEach((x) => (busy[x.n] = x.w));
-  const workers = db.prepare("select id,name from users where role='worker' and active=1 order by name").all();
+  db.prepare("select dl.nozzle_id n, u.name w from duty_lines dl join duties du on du.id=dl.duty_id join users u on u.id=du.worker_id where du.pump_id=? and du.status in ('open','submitted')").all(pid).forEach((x) => (busy[x.n] = x.w));
+  const workers = db.prepare("select id,name from users where pump_id=? and role='worker' and active=1 order by name").all(pid);
   const nozzles = (st.nozzles || []).filter((n) => n.active !== false).map((n) => {
-    const lc = lastClose(n.id);
+    const lc = lastClose(n.id, pid);
     return { id: n.id, name: n.name, fuel: n.fuel, busy_by: busy[String(n.id)] || null, rate: rateFor(st, n.fuel, d), opening: lc.c ?? (n.open ?? null) };
   });
-  const open = db.prepare("select * from duties where status='open' order by id").all().map(detail);
-  s.json({ date: d, day: dayStatus(d), workers, nozzles, open });
+  const open = db.prepare("select * from duties where pump_id=? and status='open' order by id").all(pid).map((x) => detail(x, pid));
+  s.json({ date: d, day: dayStatus(d, pid), workers, nozzles, open });
 });
 app.post("/api/duties/assign", need("owner", "manager"), (q, s) => {
-  const { worker_id, shift, nozzle_ids } = q.body || {}, st = stateNow(), d = bizDate();
-  const w = db.prepare("select * from users where id=? and active=1 and role='worker'").get(+worker_id);
+  const pid = q.user.pump_id;
+  const { worker_id, shift, nozzle_ids } = q.body || {}, st = stateNow(pid), d = bizDate();
+  const w = db.prepare("select * from users where id=? and pump_id=? and active=1 and role='worker'").get(+worker_id, pid);
   if (!w) return s.status(400).json({ error: "Choose a worker." });
   if (!SHIFTS.includes(shift)) return s.status(400).json({ error: "Choose a shift." });
   const ids = Array.isArray(nozzle_ids) ? [...new Set(nozzle_ids.map(String))] : [];
   if (!ids.length || ids.length > 30) return s.status(400).json({ error: "Choose at least one nozzle." });
-  if (dayStatus(d) !== "open") return s.status(409).json({ error: "Today's business day is already closed. Ask the owner to reopen it." });
-  if (openDuty(w.id)) return s.status(409).json({ error: `${w.name} already has a duty in progress.` });
+  if (dayStatus(d, pid) !== "open") return s.status(409).json({ error: "Today's business day is already closed. Ask the owner to reopen it." });
+  if (openDuty(w.id, pid)) return s.status(409).json({ error: `${w.name} already has a duty in progress.` });
   const nm = nozzleMap(st), lines = [];
   for (const id of ids) {
     const n = nm[id];
     if (!n || n.active === false) return s.status(400).json({ error: "One of the nozzles is not available." });
-    const b = db.prepare("select u.name w from duty_lines dl join duties du on du.id=dl.duty_id join users u on u.id=du.worker_id where dl.nozzle_id=? and du.status in ('open','submitted') limit 1").get(id);
+    const b = db.prepare("select u.name w from duty_lines dl join duties du on du.id=dl.duty_id join users u on u.id=du.worker_id where du.pump_id=? and dl.nozzle_id=? and du.status in ('open','submitted') limit 1").get(pid, id);
     if (b) return s.status(409).json({ error: `${n.name} is with ${b.w}. It is free once that duty is closed.` });
     const rate = rateFor(st, n.fuel, d);
     if (rate == null) return s.status(400).json({ error: `Set the ${n.fuel} rate in Pump setup first.` });
-    const lc = lastClose(id), opening = lc.c ?? (n.open ?? null);
+    const lc = lastClose(id, pid), opening = lc.c ?? (n.open ?? null);
     if (opening == null) return s.status(400).json({ error: `Set the opening reading for ${n.name} in Pump setup first.` });
     lines.push({ id, opening, rate });
   }
   const dutyId = db.transaction(() => {
-    const did = db.prepare("insert into duties(worker_id,d,shift,started,assigned_by) values(?,?,?,?,?)").run(w.id, d, shift, now(), q.user.id).lastInsertRowid;
+    const did = db.prepare("insert into duties(pump_id,worker_id,d,shift,started,assigned_by) values(?,?,?,?,?,?)").run(pid, w.id, d, shift, now(), q.user.id).lastInsertRowid;
     lines.forEach((l) => db.prepare("insert into duty_lines(duty_id,nozzle_id,opening,rate) values(?,?,?,?)").run(did, l.id, l.opening, l.rate));
     return did;
   })();
   s.json({ id: dutyId });
 });
 app.delete("/api/duties/:id", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const r = db.transaction(() => {
-    const d = db.prepare("select * from duties where id=? and status='open'").get(+q.params.id);
+    const d = db.prepare("select * from duties where id=? and pump_id=? and status='open'").get(+q.params.id, pid);
     if (!d) return 0;
     db.prepare("delete from duty_lines where duty_id=?").run(d.id);
     db.prepare("delete from duty_items where duty_id=?").run(d.id);
     db.prepare("delete from duty_expenses where duty_id=?").run(d.id);
-    db.prepare("delete from duties where id=?").run(d.id);
+    db.prepare("delete from duties where id=? and pump_id=?").run(d.id, pid);
     return 1;
   })();
   if (!r) return s.status(404).json({ error: "Only a duty that has not been submitted can be cancelled." });
   s.json({ ok: true });
 });
 app.get("/api/duties", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const d = /^\d{4}-\d{2}-\d{2}$/.test(q.query.d || "") ? q.query.d : bizDate();
   s.json({
-    day: db.prepare("select * from duties where d=? and status<>'open' order by id").all(d).map(detail),
-    pending: db.prepare("select * from duties where status='submitted' order by id").all().map(detail),
-    open: db.prepare("select * from duties where status='open' order by id").all().map(detail),
-    day_status: dayStatus(d),
+    day: db.prepare("select * from duties where pump_id=? and d=? and status<>'open' order by id").all(pid, d).map((x) => detail(x, pid)),
+    pending: db.prepare("select * from duties where pump_id=? and status='submitted' order by id").all(pid).map((x) => detail(x, pid)),
+    open: db.prepare("select * from duties where pump_id=? and status='open' order by id").all(pid).map((x) => detail(x, pid)),
+    day_status: dayStatus(d, pid),
   });
 });
 app.get("/api/duties/:id", need("owner", "manager"), (q, s) => {
-  const d = db.prepare("select * from duties where id=? and status<>'open'").get(+q.params.id);
+  const pid = q.user.pump_id;
+  const d = db.prepare("select * from duties where id=? and pump_id=? and status<>'open'").get(+q.params.id, pid);
   if (!d) return s.status(404).json({ error: "Duty not found." });
-  s.json(detail(d));
+  s.json(detail(d, pid));
 });
 app.put("/api/duties/:id", need("owner", "manager"), (q, s) => {
-  const d = db.prepare("select * from duties where id=? and status='submitted'").get(+q.params.id);
+  const pid = q.user.pump_id;
+  const d = db.prepare("select * from duties where id=? and pump_id=? and status='submitted'").get(+q.params.id, pid);
   if (!d) return s.status(404).json({ error: "Only duties waiting to be closed can be changed." });
-  const before = detail(d), e = saveDuty(d.id, q.body || {}, true, true);
+  const before = detail(d, pid), e = saveDuty(d.id, q.body || {}, true, true, pid);
   if (e) return s.status(400).json({ error: e });
-  const after = detail(db.prepare("select * from duties where id=?").get(d.id)), bits = [];
+  const after = detail(db.prepare("select * from duties where id=? and pump_id=?").get(d.id, pid), pid), bits = [];
   [["fuel sales", "sales"], ["lube sales", "lube"], ["expenses", "exp"], ["collected", "collected"]].forEach(([l, k]) => { if (before[k] !== after[k]) bits.push(`${l} ${money(before[k])} to ${money(after[k])}`); });
   if (JSON.stringify(before.lines.map((l) => [l.opening, l.closing, l.testing, l.rate])) !== JSON.stringify(after.lines.map((l) => [l.opening, l.closing, l.testing, l.rate]))) bits.push("nozzle readings changed");
   audit(q.user, "duty corrected", `Duty #${d.id} (${before.worker}, ${before.shift}): ${bits.length ? bits.join(", ") : "saved with no figure changes"}`);
   s.json({ ok: true });
 });
 app.post("/api/duties/:id/close", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const out = db.transaction(() => {
-    const d = db.prepare("select * from duties where id=? and status='submitted'").get(+q.params.id);
+    const d = db.prepare("select * from duties where id=? and pump_id=? and status='submitted'").get(+q.params.id, pid);
     if (!d) return { code: 404, error: "This duty is not waiting to be closed." };
-    if (dayStatus(d.d) !== "open") return { code: 409, error: "This business day is already closed." };
-    db.prepare("update duties set status='closed', closed_by=?, closed_at=?, stock_done=1 where id=?").run(q.user.id, now(), d.id);
-    if (!d.stock_done) adjustStock(d, -1);
+    if (dayStatus(d.d, pid) !== "open") return { code: 409, error: "This business day is already closed." };
+    db.prepare("update duties set status='closed', closed_by=?, closed_at=?, stock_done=1 where id=? and pump_id=?").run(q.user.id, now(), d.id, pid);
+    if (!d.stock_done) adjustStock(d, -1, pid);
     return { ok: true };
   })();
   if (out.error) return s.status(out.code).json({ error: out.error });
   s.json({ ok: true });
 });
 app.post("/api/duties/:id/reopen", need("owner"), (q, s) => {
+  const pid = q.user.pump_id;
   const out = db.transaction(() => {
-    const d = db.prepare("select * from duties where id=? and status='closed'").get(+q.params.id);
+    const d = db.prepare("select * from duties where id=? and pump_id=? and status='closed'").get(+q.params.id, pid);
     if (!d) return { code: 404, error: "This duty is not closed." };
-    if (dayStatus(d.d) !== "open") return { code: 409, error: "Reopen the business day first." };
-    db.prepare("update duties set status='submitted', stock_done=0 where id=?").run(d.id);
-    if (d.stock_done) adjustStock(d, +1);
+    if (dayStatus(d.d, pid) !== "open") return { code: 409, error: "Reopen the business day first." };
+    db.prepare("update duties set status='submitted', stock_done=0 where id=? and pump_id=?").run(d.id, pid);
+    if (d.stock_done) adjustStock(d, +1, pid);
     return { ok: true };
   })();
   if (out.error) return s.status(out.code).json({ error: out.error });
@@ -685,28 +1093,32 @@ app.post("/api/duties/:id/reopen", need("owner"), (q, s) => {
 // ---- Business day: manager closes, owner approves
 const validDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "");
 app.post("/api/days/:d/close", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const d = q.params.d;
   if (!validDay(d)) return s.status(400).json({ error: "Invalid date." });
-  if (dayStatus(d) !== "open") return s.status(409).json({ error: "This day is already closed." });
-  const c = db.prepare("select sum(status='closed') done, sum(status<>'closed') wait from duties where d=?").get(d);
+  if (dayStatus(d, pid) !== "open") return s.status(409).json({ error: "This day is already closed." });
+  const c = db.prepare("select sum(status='closed') done, sum(status<>'closed') wait from duties where pump_id=? and d=?").get(pid, d);
   if (!c.done) return s.status(400).json({ error: "There are no closed duties on this date." });
   if (c.wait) return s.status(400).json({ error: "Some duties on this date are still open or waiting to be closed." });
-  db.prepare("insert into days(d,status,closed_by,closed_at) values(?,?,?,?) on conflict(d) do update set status='closed', closed_by=excluded.closed_by, closed_at=excluded.closed_at, approved_by=null, approved_at=null").run(d, "closed", q.user.id, now());
+  db.prepare("insert into days(pump_id,d,status,closed_by,closed_at) values(?,?,?,?,?) on conflict(pump_id,d) do update set status='closed', closed_by=excluded.closed_by, closed_at=excluded.closed_at, approved_by=null, approved_at=null").run(pid, d, "closed", q.user.id, now());
   s.json({ ok: true });
 });
 app.post("/api/days/:d/approve", need("owner"), (q, s) => {
-  const r = db.prepare("update days set status='approved', approved_by=?, approved_at=? where d=? and status='closed'").run(q.user.id, now(), q.params.d);
+  const pid = q.user.pump_id;
+  const r = db.prepare("update days set status='approved', approved_by=?, approved_at=? where pump_id=? and d=? and status='closed'").run(q.user.id, now(), pid, q.params.d);
   if (!r.changes) return s.status(409).json({ error: "Only a day closed by the manager can be approved." });
   s.json({ ok: true });
 });
 app.post("/api/days/:d/reopen", need("owner"), (q, s) => {
-  db.prepare("update days set status='open', approved_by=null, approved_at=null where d=?").run(q.params.d);
+  const pid = q.user.pump_id;
+  db.prepare("update days set status='open', approved_by=null, approved_at=null where pump_id=? and d=?").run(pid, q.params.d);
   s.json({ ok: true });
 });
 // Day reports use closed duties only.
 app.get("/api/day-report", need("owner", "manager"), (q, s) => {
-  const d = validDay(q.query.d) ? q.query.d : bizDate(), st = stateNow();
-  const duties = db.prepare("select * from duties where d=? and status='closed' order by id").all(d).map(detail);
+  const pid = q.user.pump_id;
+  const d = validDay(q.query.d) ? q.query.d : bizDate(), st = stateNow(pid);
+  const duties = db.prepare("select * from duties where pump_id=? and d=? and status='closed' order by id").all(pid, d).map((x) => detail(x, pid));
   const fuel = {}, shop = {}, exps = {}, pay = {};
   const T = { sales: 0, lube: 0, credit: 0, exp: 0, expected: 0, collected: 0, diff: 0, litres: 0 };
   duties.forEach((x) => {
@@ -717,16 +1129,17 @@ app.get("/api/day-report", need("owner", "manager"), (q, s) => {
     Object.keys(x.pay).forEach((k) => (pay[k] = (pay[k] || 0) + (+x.pay[k] || 0)));
   });
   Object.keys(T).forEach((k) => (T[k] = r2(T[k])));
-  const dd = db.prepare("select * from days where d=?").get(d) || { status: "open" };
+  const dd = db.prepare("select * from days where pump_id=? and d=?").get(pid, d) || { status: "open" };
   s.json({ d, day: dd, modes: allModes(st).map((m) => ({ key: m.key, name: m.name })), duties, summary: { ...T, total: r2(T.sales + T.lube), fuel, shop, exps, pay } });
 });
 
 // Money from closed business days: collections by mode, fuel and shop sales, expenses (for the Book and Reports)
 app.get("/api/duty-money", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const f = validDay(q.query.from) ? q.query.from : "0000-01-01", t = validDay(q.query.to) ? q.query.to : "9999-12-31";
-  const days = db.prepare("select d from days where status in ('closed','approved') and d>=? and d<=? order by d").all(f, t);
+  const days = db.prepare("select d from days where pump_id=? and status in ('closed','approved') and d>=? and d<=? order by d").all(pid, f, t);
   s.json(days.map(({ d }) => {
-    const ds = db.prepare("select * from duties where d=? and status='closed' order by id").all(d).map(detail);
+    const ds = db.prepare("select * from duties where pump_id=? and d=? and status='closed' order by id").all(pid, d).map((x) => detail(x, pid));
     const pay = {}, fuel = {}, lube = {}, exp = [];
     let fuelTotal = 0, lubeTotal = 0, credit = 0;
     ds.forEach((x) => {
@@ -742,9 +1155,291 @@ app.get("/api/duty-money", need("owner", "manager"), (q, s) => {
 
 // Closed duties with their sales and cash difference, for the shortage report
 app.get("/api/shortage-data", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const f = validDay(q.query.from) ? q.query.from : "0000-01-01", t = validDay(q.query.to) ? q.query.to : "9999-12-31";
-  s.json(db.prepare("select * from duties where status='closed' and d>=? and d<=? order by d,id").all(f, t).map(detail)
+  s.json(db.prepare("select * from duties where pump_id=? and status='closed' and d>=? and d<=? order by d,id").all(pid, f, t).map((x) => detail(x, pid))
     .map((x) => ({ id: x.id, d: x.d, shift: x.shift, worker_id: x.worker_id, worker: x.worker, sales: r2(x.sales + x.lube), diff: x.diff })));
+});
+
+// ---- Daily 6:00 AM Cash Flow: Opening Cash + Morning Shift - Bank Deposit + Evening Shift + Night Shift = Closing Balance
+function prevDay(d) {
+  const dt = new Date(d + "T12:00:00Z");
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+function nextDay(d) {
+  const dt = new Date(d + "T12:00:00Z");
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+function computeDayCashFlow(pid, d, visited = new Set()) {
+  if (!validDay(d)) d = bizDate();
+  if (visited.has(d)) return { closing_cash: 0 };
+  visited.add(d);
+
+  const ds = db.prepare("select * from duties where pump_id=? and d=? and status in ('submitted','closed') order by id").all(pid, d).map((x) => detail(x, pid));
+
+  const shifts = {
+    Morning: { cash: 0, litres: 0, sales: 0, lube: 0, credit: 0, exp: 0, duties: [] },
+    Evening: { cash: 0, litres: 0, sales: 0, lube: 0, credit: 0, exp: 0, duties: [] },
+    Night: { cash: 0, litres: 0, sales: 0, lube: 0, credit: 0, exp: 0, duties: [] },
+    Other: { cash: 0, litres: 0, sales: 0, lube: 0, credit: 0, exp: 0, duties: [] }
+  };
+
+  ds.forEach((x) => {
+    const k = ["Morning", "Evening", "Night"].includes(x.shift) ? x.shift : "Other";
+    shifts[k].cash = r2(shifts[k].cash + (+x.cash || 0));
+    shifts[k].litres = r2(shifts[k].litres + (+x.litres || 0));
+    shifts[k].sales = r2(shifts[k].sales + (+x.sales || 0));
+    shifts[k].lube = r2(shifts[k].lube + (+x.lube || 0));
+    shifts[k].credit = r2(shifts[k].credit + (+x.credit || 0));
+    shifts[k].exp = r2(shifts[k].exp + (+x.exp || 0));
+    shifts[k].duties.push({
+      id: x.id,
+      worker_id: x.worker_id,
+      worker: x.worker,
+      shift: x.shift,
+      cash: x.cash,
+      upi: x.upi,
+      card: x.card,
+      sales: x.sales,
+      litres: x.litres,
+      credit: x.credit,
+      diff: x.diff,
+      status: x.status
+    });
+  });
+
+  const dbDeps = db.prepare("select * from bank_deposits where pump_id=? and d=? order by created_at desc, id desc").all(pid, d);
+  const st = stateNow(pid);
+  const bkDeps = (st.bk || []).filter((b) => b.d === d && b.t === "xfer" && b.acct === "Cash" && (b.to === "Bank" || b.dep));
+  const seenDeps = new Set(dbDeps.map((x) => String(x.id)));
+  const allDeposits = [...dbDeps];
+  bkDeps.forEach((b) => {
+    if (!seenDeps.has(String(b.id)) && !seenDeps.has(String(b.dep_id))) {
+      allDeposits.push({
+        id: b.id,
+        pump_id: pid,
+        d: b.d,
+        amount: +b.a || 0,
+        bank_name: b.bank || "Bank Account",
+        slip_no: b.slip || "",
+        deposited_by: b.by || "",
+        note: b.n || "",
+        created_at: b.id || now(),
+        from_bk: true
+      });
+    }
+  });
+
+  const total_bank_deposit = r2(allDeposits.reduce((acc, dep) => acc + (+dep.amount || 0), 0));
+
+  let other_in = 0, other_out = 0;
+  (st.bk || []).forEach((b) => {
+    if (b.d === d && b.acct === "Cash") {
+      if (b.t === "in") other_in = r2(other_in + (+b.a || 0));
+      else if (b.t === "out") other_out = r2(other_out + (+b.a || 0));
+    }
+  });
+
+  // Opening Cash: manual override or auto-chain from previous day's closing balance
+  const row = db.prepare("select opening_cash, opening_manual, notes from cash_flow_days where pump_id=? and d=?").get(pid, d);
+  let opening_cash = 0;
+  let opening_is_manual = false;
+
+  if (row && row.opening_manual) {
+    opening_cash = r2(row.opening_cash || 0);
+    opening_is_manual = true;
+  } else {
+    // Look for previous business day
+    const priorDay = db.prepare(`
+      select d from (
+        select d from duties where pump_id=? and d < ?
+        union
+        select d from bank_deposits where pump_id=? and d < ?
+        union
+        select d from cash_flow_days where pump_id=? and d < ?
+      ) order by d desc limit 1
+    `).get(pid, d, pid, d, pid, d);
+
+    if (priorDay && !visited.has(priorDay.d)) {
+      const priorCf = computeDayCashFlow(pid, priorDay.d, new Set(visited));
+      opening_cash = r2(priorCf.closing_cash || 0);
+    } else {
+      opening_cash = r2((st.ob && st.ob.Cash) || 0);
+    }
+  }
+
+  const morning_cash = r2(shifts.Morning.cash);
+  const evening_cash = r2(shifts.Evening.cash);
+  const night_cash = r2(shifts.Night.cash);
+  const other_shift_cash = r2(shifts.Other.cash);
+  const total_shift_cash = r2(morning_cash + evening_cash + night_cash + other_shift_cash);
+
+  const subtotal_after_morning = r2(opening_cash + morning_cash);
+  const subtotal_after_deposit = r2(subtotal_after_morning - total_bank_deposit);
+  const closing_cash = r2(
+    opening_cash + morning_cash - total_bank_deposit + evening_cash + night_cash + other_shift_cash + other_in - other_out
+  );
+  const next_day_opening = closing_cash;
+
+  try {
+    db.prepare(`
+      insert into cash_flow_days(pump_id, d, opening_cash, opening_manual, closing_cash, notes)
+      values(?, ?, ?, ?, ?, ?)
+      on conflict(pump_id, d) do update set
+        opening_cash = case when cash_flow_days.opening_manual = 1 then cash_flow_days.opening_cash else excluded.opening_cash end,
+        closing_cash = excluded.closing_cash
+    `).run(pid, d, opening_cash, opening_is_manual ? 1 : 0, closing_cash, row ? row.notes : "");
+  } catch (e) {}
+
+  return {
+    d,
+    prev_d: prevDay(d),
+    next_d: nextDay(d),
+    day_status: dayStatus(d, pid),
+    opening_cash,
+    opening_is_manual,
+    morning_cash,
+    bank_deposit: total_bank_deposit,
+    evening_cash,
+    night_cash,
+    other_shift_cash,
+    total_shift_cash,
+    subtotal_after_morning,
+    subtotal_after_deposit,
+    other_in,
+    other_out,
+    closing_cash,
+    next_day_opening,
+    shifts,
+    bank_deposits: allDeposits
+  };
+}
+
+// Cash flow API routes
+app.get("/api/cashflow/day/:d?", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
+  const d = validDay(q.params.d || q.query.d) ? (q.params.d || q.query.d) : bizDate();
+  s.json(computeDayCashFlow(pid, d));
+});
+
+app.post("/api/cashflow/deposit", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
+  const { d, amount, bank_name, slip_no, deposited_by, note } = q.body || {};
+  const day = validDay(d) ? d : bizDate();
+  const amt = num(amount);
+  if (!amt || amt <= 0) return s.status(400).json({ error: "Enter a deposit amount above ₹0." });
+
+  const depId = db.prepare(`
+    insert into bank_deposits(pump_id, d, amount, bank_name, slip_no, deposited_by, note, created_at, user_id)
+    values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(pid, day, amt, String(bank_name || "Bank").trim(), String(slip_no || "").trim(), String(deposited_by || q.user.name).trim(), String(note || "").trim(), now(), q.user.id).lastInsertRowid;
+
+  // Sync with S.bk for Book compatibility
+  try {
+    const st = stateNow(pid);
+    const bkList = Array.isArray(st.bk) ? [...st.bk] : [];
+    bkList.push({
+      id: Date.now(),
+      dep_id: depId,
+      d: day,
+      t: "xfer",
+      acct: "Cash",
+      to: "Bank",
+      bank: String(bank_name || "Bank").trim(),
+      a: amt,
+      dep: 1,
+      slip: String(slip_no || "").trim(),
+      by: String(deposited_by || q.user.name).trim()
+    });
+    const curSec = db.prepare("select ver, json from sections where pump_id=? and name='bk'").get(pid);
+    const curObj = curSec ? JSON.parse(curSec.json) : { bk: [], ob: { Cash: 0, Bank: 0, UPI: 0 } };
+    curObj.bk = bkList;
+    db.prepare("insert into sections(pump_id, name, ver, json) values(?, 'bk', ?, ?) on conflict(pump_id, name) do update set ver=excluded.ver, json=excluded.json")
+      .run(pid, "bk", (curSec ? curSec.ver : 0) + 1, JSON.stringify(curObj));
+  } catch (e) {}
+
+  audit(q.user, "bank deposit", `Recorded bank deposit of ₹${amt} on ${day} (Slip: ${slip_no || "none"})`);
+  s.json({ ok: true, id: depId, flow: computeDayCashFlow(pid, day) });
+});
+
+app.delete("/api/cashflow/deposit/:id", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
+  const depId = +q.params.id;
+  const dep = db.prepare("select * from bank_deposits where id=? and pump_id=?").get(depId, pid);
+  if (!dep) {
+    try {
+      const curSec = db.prepare("select ver, json from sections where pump_id=? and name='bk'").get(pid);
+      if (curSec) {
+        const curObj = JSON.parse(curSec.json);
+        curObj.bk = (curObj.bk || []).filter((b) => b.id !== depId && b.dep_id !== depId);
+        db.prepare("update sections set ver=ver+1, json=? where pump_id=? and name='bk'").run(JSON.stringify(curObj), pid);
+      }
+    } catch (e) {}
+    return s.json({ ok: true });
+  }
+
+  db.prepare("delete from bank_deposits where id=? and pump_id=?").run(depId, pid);
+  try {
+    const curSec = db.prepare("select ver, json from sections where pump_id=? and name='bk'").get(pid);
+    if (curSec) {
+      const curObj = JSON.parse(curSec.json);
+      curObj.bk = (curObj.bk || []).filter((b) => b.dep_id !== depId && b.id !== depId);
+      db.prepare("update sections set ver=ver+1, json=? where pump_id=? and name='bk'").run(JSON.stringify(curObj), pid);
+    }
+  } catch (e) {}
+
+  audit(q.user, "delete bank deposit", `Deleted bank deposit of ₹${dep.amount} from ${dep.d}`);
+  s.json({ ok: true, flow: computeDayCashFlow(pid, dep.d) });
+});
+
+app.post("/api/cashflow/opening", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
+  const { d, opening_cash, note } = q.body || {};
+  const day = validDay(d) ? d : bizDate();
+  const amt = num(opening_cash);
+  if (isNaN(amt) || amt < 0) return s.status(400).json({ error: "Enter a valid opening cash amount (₹0 or greater)." });
+
+  db.prepare(`
+    insert into cash_flow_days(pump_id, d, opening_cash, opening_manual, notes)
+    values(?, ?, ?, 1, ?)
+    on conflict(pump_id, d) do update set opening_cash=excluded.opening_cash, opening_manual=1, notes=excluded.notes
+  `).run(pid, day, amt, String(note || "").trim());
+
+  audit(q.user, "set opening cash", `Set 6 AM opening cash to ₹${amt} on ${day}`);
+  s.json({ ok: true, flow: computeDayCashFlow(pid, day) });
+});
+
+app.post("/api/cashflow/reset-opening", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
+  const { d } = q.body || {};
+  const day = validDay(d) ? d : bizDate();
+
+  db.prepare(`
+    update cash_flow_days set opening_manual=0 where pump_id=? and d=?
+  `).run(pid, day);
+
+  audit(q.user, "reset opening cash", `Reset 6 AM opening cash to auto-carry from previous day on ${day}`);
+  s.json({ ok: true, flow: computeDayCashFlow(pid, day) });
+});
+
+app.get("/api/cashflow/register", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
+  const today = bizDate();
+  const f = validDay(q.query.from) ? q.query.from : prevDay(prevDay(prevDay(prevDay(prevDay(prevDay(prevDay(today)))))));
+  const t = validDay(q.query.to) ? q.query.to : today;
+
+  const rows = [];
+  let cur = f;
+  let count = 0;
+  while (cur <= t && count < 60) {
+    rows.push(computeDayCashFlow(pid, cur));
+    cur = nextDay(cur);
+    count++;
+  }
+  s.json({ from: f, to: t, days: rows });
 });
 
 // ---- Fuel tanks: dip readings and stock check
@@ -758,8 +1453,8 @@ function fromChart(chart, dip) {
   }
   return { l: c[c.length - 1].l };
 }
-function tankChecks() {
-  const st = stateNow(), tanks = st.tanks || [], dv = st.deliv || [], tankOf = {};
+function tankChecks(pumpId = 1) {
+  const st = stateNow(pumpId), tanks = st.tanks || [], dv = st.deliv || [], tankOf = {};
   (st.nozzles || []).forEach((n) => (tankOf[String(n.id)] = String(n.tank_id || "")));
   const sales = db.prepare(`
     select coalesce(d.submitted, d.closed_at, d.started) t, dl.nozzle_id n,
@@ -767,9 +1462,9 @@ function tankChecks() {
            coalesce(dl.testing, 0) testing
     from duty_lines dl
     join duties d on d.id=dl.duty_id
-    where d.status in ('submitted','closed')
-  `).all();
-  const dips = db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id order by di.t, di.id").all();
+    where d.pump_id=? and d.status in ('submitted','closed')
+  `).all(pumpId);
+  const dips = db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id where di.pump_id=? order by di.t, di.id").all(pumpId);
 
   const getSales = (tid, a, b) => {
     let gross = 0, testing = 0;
@@ -847,13 +1542,15 @@ function tankChecks() {
   });
 }
 app.get("/api/tanks", need(), (q, s) => {
-  const st = stateNow(), names = {};
+  const pid = q.user.pump_id;
+  const st = stateNow(pid), names = {};
   (st.tanks || []).forEach((t) => (names[String(t.id)] = t.name));
-  const mine = db.prepare("select id,tank_id,litres,dip,dens_obs,temp,d15,note,t from dips where user_id=? order by id desc limit 10").all(q.user.id).map((d) => ({ ...d, tank: names[d.tank_id] || "Tank" }));
+  const mine = db.prepare("select id,tank_id,litres,dip,dens_obs,temp,d15,note,t from dips where pump_id=? and user_id=? order by id desc limit 10").all(pid, q.user.id).map((d) => ({ ...d, tank: names[d.tank_id] || "Tank" }));
   s.json({ tanks: (st.tanks || []).map((t) => ({ id: t.id, name: t.name, fuel: t.fuel, capacity: t.capacity || 0 })), mine });
 });
 app.post("/api/dips", need(), (q, s) => {
-  const b = q.body || {}, tank = (stateNow().tanks || []).find((t) => String(t.id) === String(b.tank_id));
+  const pid = q.user.pump_id;
+  const b = q.body || {}, tank = (stateNow(pid).tanks || []).find((t) => String(t.id) === String(b.tank_id));
   if (!tank) return s.status(400).json({ error: "Choose a tank." });
   let litres = num(b.litres);
   const dip = b.dip === "" || b.dip == null ? null : num(b.dip);
@@ -874,7 +1571,7 @@ app.post("/api/dips", need(), (q, s) => {
   const dobs = opt(b.dens_obs, 0.5, 1.2), d15 = opt(b.d15, 0.5, 1.2), tmp = opt(b.temp, -10, 90);
   if ([dobs, d15].some(Number.isNaN)) return s.status(400).json({ error: "Density should be a number such as 732.0 or 0.745." });
   if (Number.isNaN(tmp)) return s.status(400).json({ error: "Check the temperature." });
-  const id = db.prepare("insert into dips(tank_id,litres,dip,dens_obs,temp,d15,note,user_id,t) values(?,?,?,?,?,?,?,?,?)").run(String(tank.id), r2(litres), dip, dobs, tmp, d15, String(b.note || "").slice(0, 200), q.user.id, now()).lastInsertRowid;
+  const id = db.prepare("insert into dips(pump_id,tank_id,litres,dip,dens_obs,temp,d15,note,user_id,t) values(?,?,?,?,?,?,?,?,?,?)").run(pid, String(tank.id), r2(litres), dip, dobs, tmp, d15, String(b.note || "").slice(0, 200), q.user.id, now()).lastInsertRowid;
   s.json({ id, litres: r2(litres) });
 });
 // ---- Density checks (deliveries and dips) with flags
@@ -891,7 +1588,8 @@ function densFlags(cfg, r) {
   return f;
 }
 app.get("/api/density", need("owner", "manager"), (q, s) => {
-  const st = stateNow(), tanks = {}, rows = [], nn = (x) => (x === "" || x == null || !Number.isFinite(+x) ? null : +x);
+  const pid = q.user.pump_id;
+  const st = stateNow(pid), tanks = {}, rows = [], nn = (x) => (x === "" || x == null || !Number.isFinite(+x) ? null : +x);
   (st.tanks || []).forEach((t) => (tanks[String(t.id)] = t));
   (st.deliv || []).forEach((d) => (d.lines || []).forEach((l) => {
     const dn = l.dens, t = tanks[String(l.tank_id)];
@@ -900,7 +1598,7 @@ app.get("/api/density", need("owner", "manager"), (q, s) => {
     if (o.inv == null && o.obs == null && o.d15 == null) return;
     o.flags = densFlags(densCfg(st, t.fuel), o); rows.push(o);
   }));
-  db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id where di.dens_obs is not null or di.d15 is not null order by di.t desc limit 200").all().forEach((x) => {
+  db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id where di.pump_id=? and (di.dens_obs is not null or di.d15 is not null) order by di.t desc limit 200").all(pid).forEach((x) => {
     const t = tanks[x.tank_id]; if (!t) return;
     const o = { src: "Dip", t: x.t, d: new Date(x.t * 1000).toLocaleDateString("en-CA", { timeZone: TZ }), tank: t.name, fuel: t.fuel, inv: null, obs: x.dens_obs, temp: x.temp, d15: x.d15, by: x.by_name };
     o.flags = densFlags(densCfg(st, t.fuel), o); rows.push(o);
@@ -908,23 +1606,24 @@ app.get("/api/density", need("owner", "manager"), (q, s) => {
   rows.sort((a, b) => b.t - a.t);
   s.json(rows.slice(0, 80));
 });
-app.get("/api/stock-check", need("owner", "manager"), (q, s) => s.json(tankChecks()));
+app.get("/api/stock-check", need("owner", "manager"), (q, s) => s.json(tankChecks(q.user.pump_id)));
 app.delete("/api/dips/:id", need("owner", "manager"), (q, s) => {
-  db.prepare("delete from dips where id=?").run(+q.params.id);
+  db.prepare("delete from dips where id=? and pump_id=?").run(+q.params.id, q.user.pump_id);
   s.json({ ok: true });
 });
 app.put("/api/dips/:id/note", need("owner", "manager"), (q, s) => {
   const note = String((q.body && q.body.note) || "").trim().slice(0, 200);
-  db.prepare("update dips set note=? where id=?").run(note, +q.params.id);
+  db.prepare("update dips set note=? where id=? and pump_id=?").run(note, +q.params.id, q.user.pump_id);
   s.json({ ok: true, note });
 });
 
 // Statutory Daily Density Register (matches official Indian Oil / Petroleum Daily Density Register format)
 app.get("/api/density-register", need("owner", "manager"), (q, s) => {
-  const st = stateNow(), tanks = {}, tankList = st.tanks || [];
+  const pid = q.user.pump_id;
+  const st = stateNow(pid), tanks = {}, tankList = st.tanks || [];
   tankList.forEach((t) => (tanks[String(t.id)] = t));
 
-  const dbRows = db.prepare("select * from density_register order by d desc, id desc limit 400").all();
+  const dbRows = db.prepare("select * from density_register where pump_id=? order by d desc, id desc limit 400").all(pid);
   const keyMap = {};
   dbRows.forEach((r) => {
     const t = tanks[String(r.tank_id)];
@@ -934,7 +1633,7 @@ app.get("/api/density-register", need("owner", "manager"), (q, s) => {
   });
 
   // Synthesize from dips
-  db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id where di.dens_obs is not null or di.d15 is not null order by di.t desc limit 150").all().forEach((x) => {
+  db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id where di.pump_id=? and (di.dens_obs is not null or di.d15 is not null) order by di.t desc limit 150").all(pid).forEach((x) => {
     const t = tanks[String(x.tank_id)];
     if (!t) return;
     const dStr = new Date(x.t * 1000).toLocaleDateString("en-CA", { timeZone: TZ });
@@ -1015,6 +1714,7 @@ app.get("/api/density-register", need("owner", "manager"), (q, s) => {
 });
 
 app.post("/api/density-register", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const b = q.body || {};
   const tid = String(b.tank_id || "").trim();
   if (!tid) return s.status(400).json({ error: "Please select a tank." });
@@ -1060,10 +1760,10 @@ app.post("/api/density-register", need("owner", "manager"), (q, s) => {
 
   const t = Math.floor(new Date(d + "T10:00:00").getTime() / 1000);
   const stmt = db.prepare(`
-    insert into density_register(tank_id, d, t, m_obs, m_temp, m_d15, comp1, comp2, comp3, comp4, mix_dens, chalan_dens, dens_diff, pre_dip, pre_stock, post_dens, receipt_kl, chalan_no, user_id, by_name)
-    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    insert into density_register(pump_id, tank_id, d, t, m_obs, m_temp, m_d15, comp1, comp2, comp3, comp4, mix_dens, chalan_dens, dens_diff, pre_dip, pre_stock, post_dens, receipt_kl, chalan_no, user_id, by_name)
+    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const info = stmt.run(tid, d, t, m_obs, m_temp, m_d15, comp1, comp2, comp3, comp4, mix_dens, chalan_dens, dens_diff, pre_dip, pre_stock, post_dens, receipt_kl, chalan_no, q.user.id, q.user.name);
+  const info = stmt.run(pid, tid, d, t, m_obs, m_temp, m_d15, comp1, comp2, comp3, comp4, mix_dens, chalan_dens, dens_diff, pre_dip, pre_stock, post_dens, receipt_kl, chalan_no, q.user.id, q.user.name);
 
   s.json({ ok: true, id: info.lastInsertRowid });
 });
@@ -1071,22 +1771,20 @@ app.post("/api/density-register", need("owner", "manager"), (q, s) => {
 app.delete("/api/density-register/:id", need("owner", "manager"), (q, s) => {
   const id = +q.params.id;
   if (id > 0) {
-    db.prepare("delete from density_register where id=?").run(id);
+    db.prepare("delete from density_register where id=? and pump_id=?").run(id, q.user.pump_id);
   }
   s.json({ ok: true });
 });
 
-
-
 // ---- Worker pay (owner manages; each worker can see their own)
-
 const SHIFTS = ["Morning", "Evening", "Night"];
 const monthOf = (m) => (/^\d{4}-(0[1-9]|1[0-2])$/.test(m || "") ? m : today().slice(0, 7));
-function payFor(u, month) {
+function payFor(u, month, pumpId = 1) {
+  const pid = pumpId || u.pump_id || 1;
   const rates = {};
-  db.prepare("select shift,rate from pay_rates where worker_id=?").all(u.id).forEach((r) => (rates[r.shift] = r.rate));
-  const ds = db.prepare("select * from duties where worker_id=? and status='closed' and substr(d,1,7)=?").all(u.id, month).map(detail);
-  const pending = db.prepare("select count(*) n from duties where worker_id=? and status in ('open','submitted') and substr(d,1,7)=?").get(u.id, month).n;
+  db.prepare("select shift,rate from pay_rates where pump_id=? and worker_id=?").all(pid, u.id).forEach((r) => (rates[r.shift] = r.rate));
+  const ds = db.prepare("select * from duties where pump_id=? and worker_id=? and status='closed' and substr(d,1,7)=?").all(pid, u.id, month).map((x) => detail(x, pid));
+  const pending = db.prepare("select count(*) n from duties where pump_id=? and worker_id=? and status in ('open','submitted') and substr(d,1,7)=?").get(pid, u.id, month).n;
   const count = { Morning: 0, Evening: 0, Night: 0 };
   let earn = 0, short = 0, missing = false;
   ds.forEach((d) => {
@@ -1095,7 +1793,7 @@ function payFor(u, month) {
     earn += rates[d.shift] || 0;
     if (d.diff <= -1) short += -d.diff;
   });
-  const items = db.prepare("select id,kind,amount,note,d from pay_items where worker_id=? and month=? order by id").all(u.id, month);
+  const items = db.prepare("select id,kind,amount,note,d from pay_items where pump_id=? and worker_id=? and month=? order by id").all(pid, u.id, month);
   const sum = (k) => r2(items.filter((x) => x.kind === k).reduce((a, x) => a + x.amount, 0));
   const advance = sum("advance"), bonus = sum("bonus"), waived = sum("waive"), paid = sum("paid");
   earn = r2(earn); short = r2(short);
@@ -1103,13 +1801,15 @@ function payFor(u, month) {
   return { id: u.id, name: u.name, role: u.role, rates, count, duties: ds.length, pending, missing_rate: missing, earn, short, advance, bonus, waived, paid, net, balance: r2(net - paid), items };
 }
 app.get("/api/payroll", need("owner"), (q, s) => {
+  const pid = q.user.pump_id;
   const m = monthOf(q.query.month);
-  const us = db.prepare("select id,name,role from users where role='worker' or id in (select worker_id from duties where substr(d,1,7)=?) order by name").all(m);
-  s.json({ month: m, workers: us.map((u) => payFor(u, m)) });
+  const us = db.prepare("select id,name,role from users where pump_id=? and (role='worker' or id in (select worker_id from duties where pump_id=? and substr(d,1,7)=?)) order by name").all(pid, pid, m);
+  s.json({ month: m, workers: us.map((u) => payFor(u, m, pid)) });
 });
 app.put("/api/payroll/rates", need("owner"), (q, s) => {
+  const pid = q.user.pump_id;
   const { worker_id, rates } = q.body || {};
-  if (!db.prepare("select 1 from users where id=?").get(+worker_id)) return s.status(404).json({ error: "Worker not found." });
+  if (!db.prepare("select 1 from users where id=? and pump_id=?").get(+worker_id, pid)) return s.status(404).json({ error: "Worker not found." });
   const vals = {};
   for (const sh of SHIFTS) {
     const x = rates && rates[sh];
@@ -1119,36 +1819,38 @@ app.put("/api/payroll/rates", need("owner"), (q, s) => {
     vals[sh] = n;
   }
   db.transaction(() => {
-    db.prepare("delete from pay_rates where worker_id=?").run(+worker_id);
-    Object.keys(vals).forEach((sh) => db.prepare("insert into pay_rates values(?,?,?)").run(+worker_id, sh, vals[sh]));
+    db.prepare("delete from pay_rates where pump_id=? and worker_id=?").run(pid, +worker_id);
+    Object.keys(vals).forEach((sh) => db.prepare("insert into pay_rates(pump_id,worker_id,shift,rate) values(?,?,?,?)").run(pid, +worker_id, sh, vals[sh]));
   })();
   s.json({ ok: true });
 });
 app.post("/api/payroll/items", need("owner"), (q, s) => {
+  const pid = q.user.pump_id;
   const { worker_id, month, kind, amount, note } = q.body || {};
-  if (!db.prepare("select 1 from users where id=?").get(+worker_id)) return s.status(404).json({ error: "Worker not found." });
+  if (!db.prepare("select 1 from users where id=? and pump_id=?").get(+worker_id, pid)) return s.status(404).json({ error: "Worker not found." });
   if (!["advance", "bonus", "waive", "paid"].includes(kind)) return s.status(400).json({ error: "Invalid entry type." });
   const a = num(amount);
   if (Number.isNaN(a) || a <= 0 || a > 1e7) return s.status(400).json({ error: "Enter an amount above zero." });
-  db.prepare("insert into pay_items(worker_id,month,kind,amount,note,d,created) values(?,?,?,?,?,?,?)").run(+worker_id, monthOf(month), kind, r2(a), String(note || "").slice(0, 100), today(), now());
+  db.prepare("insert into pay_items(pump_id,worker_id,month,kind,amount,note,d,created) values(?,?,?,?,?,?,?,?)").run(pid, +worker_id, monthOf(month), kind, r2(a), String(note || "").slice(0, 100), today(), now());
   s.json({ ok: true });
 });
 app.delete("/api/payroll/items/:id", need("owner"), (q, s) => {
-  db.prepare("delete from pay_items where id=?").run(+q.params.id);
+  db.prepare("delete from pay_items where id=? and pump_id=?").run(+q.params.id, q.user.pump_id);
   s.json({ ok: true });
 });
 app.get("/api/my-pay", need(), (q, s) => {
   const m = monthOf(q.query.month);
-  s.json({ month: m, worker: payFor(q.user, m) });
+  s.json({ month: m, worker: payFor(q.user, m, q.user.pump_id) });
 });
 
 // ---- Daily summary text (for the owner's WhatsApp)
 const R0 = (n) => "\u20b9" + Math.round(n).toLocaleString("en-IN");
 const L1 = (n) => (Math.round(n * 10) / 10).toLocaleString("en-IN") + " L";
 app.get("/api/daily-summary", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
   const d = /^\d{4}-\d{2}-\d{2}$/.test(q.query.d || "") ? q.query.d : bizDate();
-  const st = stateNow(), biz = st.biz || {};
-  const ds = db.prepare("select * from duties where d=? and status in ('submitted','closed') order by id").all(d).map(detail);
+  const st = stateNow(pid), biz = st.biz || {};
+  const ds = db.prepare("select * from duties where pump_id=? and d=? and status in ('submitted','closed') order by id").all(pid, d).map((x) => detail(x, pid));
   const waiting = ds.filter((x) => x.status === "submitted").length;
   const fuel = {};
   let lit = 0, amt = 0, cash = 0, upi = 0, card = 0, diff = 0;
@@ -1179,25 +1881,25 @@ app.get("/api/daily-summary", need("owner", "manager"), (q, s) => {
   }
   // credit
   const sums = {};
-  db.prepare("select cust_id, sum(a) t from credit_sales where status='ok' group by cust_id").all().forEach((x) => (sums[x.cust_id] = x.t));
+  db.prepare("select cust_id, sum(a) t from credit_sales where pump_id=? and status='ok' group by cust_id").all(pid).forEach((x) => (sums[x.cust_id] = x.t));
   let owed = 0, owing = 0;
   (st.c || []).forEach((c) => {
     const due = (c.e || []).reduce((a, x) => a + (x.t === "sale" ? x.a : -x.a), 0) + (sums[String(c.id)] || 0);
     if (due > 0) { owed += due; owing++; }
   });
-  const cs = db.prepare("select count(*) n, coalesce(sum(a),0) t from credit_sales where d=? and status='ok'").get(d);
+  const cs = db.prepare("select count(*) n, coalesce(sum(a),0) t from credit_sales where pump_id=? and d=? and status='ok'").get(pid, d);
   const ledgerToday = (st.c || []).reduce((a, c) => a + (c.e || []).filter((x) => x.t === "sale" && x.d === d).reduce((b, x) => b + x.a, 0), 0);
   out.push("", "*Credit*", `Credit sales today: ${R0(cs.t + ledgerToday)}`, `Total outstanding: ${R0(owed)} from ${owing} customer${owing === 1 ? "" : "s"}`);
-  const pend = db.prepare("select count(*) n from credit_sales where status='pending'").get().n;
+  const pend = db.prepare("select count(*) n from credit_sales where pump_id=? and status='pending'").get(pid).n;
   if (pend) out.push(`${pend} credit sale${pend === 1 ? "" : "s"} waiting for approval`);
   // stock
-  const tanks = tankChecks();
+  const tanks = tankChecks(pid);
   out.push("", "*Tank stock*");
   if (!tanks.length) out.push("No tanks set up.");
   tanks.forEach((t) => out.push(t.book == null ? `${t.name} - ${t.fuel}: no dip yet` : `${t.name} - ${t.fuel}: about ${L1(t.book)}${t.capacity ? ` (${Math.round((t.book / t.capacity) * 100)}% full)` : ""}`));
   const low = (st.items || []).filter((i) => +i.stock <= +i.low);
   if (low.length) { out.push("", "*Low stock*"); low.forEach((i) => out.push(`${i.name}: ${i.stock} ${i.unit} left`)); }
-  const owner = db.prepare("select mobile from users where role='owner' order by id limit 1").get();
+  const owner = db.prepare("select mobile from users where pump_id=? and role='owner' order by id limit 1").get(pid);
   s.json({ text: out.join("\n"), to: owner ? owner.mobile : "" });
 });
 
@@ -1230,7 +1932,7 @@ app.get("/api/backups/:name", need("owner"), (q, s) => {
   s.download(path.join(BACKUP_DIR, q.params.name));
 });
 // Restore copies every table from the chosen backup over the live data. A safety copy is taken first.
-const RESTORE_TABLES = ["users", "sections", "state", "audit", "credit_sales", "duties", "duty_lines", "duty_items", "duty_expenses", "days", "dips", "pay_rates", "pay_items"];
+const RESTORE_TABLES = ["pumps", "users", "sections", "state", "audit", "credit_sales", "duties", "duty_lines", "duty_items", "duty_expenses", "days", "dips", "pay_rates", "pay_items", "density_register"];
 app.post("/api/backups/restore", need("owner"), async (q, s) => {
   const name = q.body && q.body.name;
   if (!BK_NAME.test(String(name)) || !fs.existsSync(path.join(BACKUP_DIR, name))) return s.status(404).json({ error: "Backup not found." });

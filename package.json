@@ -7,6 +7,7 @@
     "dev": "node server.js",
     "start": "node server.js",
     "build": "echo Built",
+    "test": "node test-saas-isolation.js",
     "lint": "node --check server.js sqlite-compat.js"
   },
   "keywords": [],
@@ -14,7 +15,18 @@
   "license": "UNLICENSED",
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "dotenv": "^18.0.8",
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "^0.45.4",
     "express": "^5.2.1",
+    "firebase": "^13.0.0",
+    "firebase-admin": "^14.5.0",
+    "pg": "^8.23.1",
     "sql.js": "^1.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2"
   }
 }

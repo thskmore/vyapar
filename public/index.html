@@ -8,6 +8,8 @@
 <meta property="og:description" content="Petrol pump management system for fuel sales, meter readings, stock tracking, customer credit ledger, and worker duty logs.">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <style>
 /* ========================================================
    VYAPAR APP 3 RESPONSIVE THEMES: Standard, Modern, Trending
@@ -827,7 +829,7 @@ function igstFor(g){return !!(S.biz.gst&&g&&S.biz.gst.slice(0,2)!=g.slice(0,2))}
 function curG(){return dr.cust!="0"?find(dr.cust).gst:dr.wgst}
 function nav(){
   renderSidebar();
-  var bizName = (S && S.biz && S.biz.name) ? S.biz.name : "Vyapar Pump";
+  var bizName = (ME && ME.pump_name) ? ME.pump_name : ((S && S.biz && S.biz.name) ? S.biz.name : "Petrol Pump");
   var T=[["ledger","Ledger"],["inv","Invoices"],["stock","Stock"],["sup","Suppliers"],["book","Book"],["rep","Reports"],["bak","Backup"]];
   if(SRV)T.splice(1,0,["duty","Duty"],["tanks","Tanks"]);
   if(SRV&&ME&&ME.role=="owner")T.push(["pay","Salary"],["setup","Pump setup"]);
@@ -1025,8 +1027,15 @@ function sect(t){return '<h1 style="margin:16px 0 6px;color:var(--ink);font-size
 function sgn(x){return Math.abs(x)<1?'Tally':(x<0?'Short ':'Excess ')+inr(Math.abs(x))}
 function wnav(){
   renderSidebar();
-  var bizName = (S && S.biz && S.biz.name) ? S.biz.name : "Vyapar Pump";
-  var T=[["wduty","Duty","loadW"],["credit","Credit sale","loadCredit"],["wdip","Tank dip","loadDip"],["mypay","My pay","loadMyPay"]];
+  var bizName = (ME && ME.pump_name) ? ME.pump_name : ((S && S.biz && S.biz.name) ? S.biz.name : "Petrol Pump");
+  var T=[
+    ["wduty","Duty","loadW"],
+    ["wlube","Lubes & shop","loadWLube"],
+    ["wexp","Expenses","loadWExp"],
+    ["credit","Credit sale","loadCredit"],
+    ["wdip","Tank dip","loadDip"],
+    ["mypay","My pay","loadMyPay"]
+  ];
 
   var mobileTop = '<div class="mobile-top-bar noprint">' +
     '<button type="button" class="mobile-menu-btn" onclick="toggleSidebar(true)" aria-label="Open menu">' +
@@ -1042,9 +1051,9 @@ function wnav(){
     }).join("") +
   '</div>';
 
-  var desktopGrid = '<div class="top-nav-grid noprint" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">' +
+  var desktopGrid = '<div class="top-nav-grid noprint" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:12px">' +
     T.map(function(t){
-      return '<button style="padding:10px 4px;font-size:14px" class="'+(tab==t[0]?'':'ghost')+'" onclick="tab=\''+t[0]+'\';'+t[2]+'()">'+t[1]+'</button>';
+      return '<button style="padding:9px 4px;font-size:13.5px" class="'+(tab==t[0]?'':'ghost')+'" onclick="tab=\''+t[0]+'\';'+t[2]+'()">'+t[1]+'</button>';
     }).join("") +
   '</div>';
 
@@ -1055,16 +1064,21 @@ DF.lines.forEach(function(l,i){var no=l.closing==="",lt=no?0:Math.round((fnum(l.
 DF.items.forEach(function(it,i){var s=DF.stock.filter(function(x){return x.id==it.item_id})[0],am=s?Math.round(fnum(it.qty)*s.sell*100)/100:0;P+=am;var x=document.getElementById("il"+i);if(x)x.textContent=s?m2(am):""});
 DF.exps.forEach(function(x){X+=fnum(x.amount)});DF.modes.forEach(function(m){C+=fnum(DF.pay[m.key])});
 var ex=A+P-DF.credit-X,df=Math.round((C-ex)*100)/100;
-e.innerHTML=R2("Liquid fuel sold",L.toFixed(2)+" L")+R2("Fuel sales",m2(A))+R2("Lube and shop sales",m2(P))+R2("Less credit sales",m2(DF.credit))+R2("Less expenses paid from the till",m2(X))+R2("Expected collection",m2(ex))+R2("Collected",m2(C))+'<div class="amt" style="color:'+(Math.abs(df)<1?'var(--ok)':'var(--due)')+'">'+R2(df<=-1?"Short":df>=1?"Excess":"Tally",m2(Math.abs(df)))+'</div>'}
+var lubeTag = P > 0 ? ' <span class="sub" style="font-size:12px">(' + DF.items.length + ' item' + (DF.items.length > 1 ? 's' : '') + ')</span>' : '';
+var creditTag = DF.credit > 0 ? ' <span class="sub" style="font-size:12px">(from Credit tab)</span>' : '';
+var expTag = X > 0 ? ' <span class="sub" style="font-size:12px">(' + DF.exps.length + ' entry' + (DF.exps.length > 1 ? 's' : '') + ')</span>' : '';
+e.innerHTML=R2("Liquid fuel sold",L.toFixed(2)+" L")+R2("Fuel sales",m2(A))+R2("Lube and shop sales",m2(P)+lubeTag)+R2("Less credit sales",m2(DF.credit)+creditTag)+R2("Less expenses paid from the till",m2(X)+expTag)+R2("Expected collection",m2(ex))+R2("Collected",m2(C))+'<div class="amt" style="color:'+(Math.abs(df)<1?'var(--ok)':'var(--due)')+'">'+R2(df<=-1?"Short":df>=1?"Excess":"Tally",m2(Math.abs(df)))+'</div>'}
 function fin(label,path,val,ed){return '<label>'+label+'<input '+(ed?'':'disabled ')+'inputmode="decimal" value="'+esc(val)+'" oninput="'+path+'=this.value;dsum()"></label>'}
 function formHtml(){var wk=DF.mode=="worker",h='';
 DF.lines.forEach(function(l,i){var P='DF.lines['+i+'].';h+='<div class="cust" style="cursor:default"><b>'+esc(l.name)+'</b> <span class="sub">'+esc(l.fuel)+'</span><div class="row">'+fin("Opening",P+'opening',l.opening,!wk)+fin("Closing",P+'closing',l.closing,1)+'</div><div class="row">'+fin("Testing ("+(l.unit||"L")+")",P+'testing',l.testing,1)+fin("Rate (\u20b9/"+(l.unit||"L")+")",P+'rate',l.rate,!wk)+'</div><div class="sub" id="dl'+i+'" style="margin-top:6px"></div></div>'});
-h+=sect("Lubes and shop");
-DF.items.forEach(function(it,i){h+='<div class="cust" style="cursor:default"><select onchange="DF.items['+i+'].item_id=this.value;dsum()"><option value="">Choose item</option>'+DF.stock.map(function(s){return '<option value="'+s.id+'"'+(it.item_id==s.id?' selected':'')+'>'+esc(s.name)+' ('+s.stock+' '+esc(s.unit)+' in stock) \u00b7 '+m2(s.sell)+'</option>'}).join("")+'</select><div class="row">'+fin("Quantity","DF.items["+i+"].qty",it.qty,1)+'<span class="sub" id="il'+i+'" style="text-align:right"></span><button class="ghost" style="flex:none;padding:6px 10px" onclick="DF.items.splice('+i+',1);renderDF()">Remove</button></div></div>'});
-h+='<button class="ghost" onclick="DF.items.push({item_id:\'\',qty:\'\'});renderDF()">Add lube or shop item</button>';
-h+=sect("Expenses paid from the till");
-DF.exps.forEach(function(x,i){var cl=DF.cats.indexOf(x.cat)<0?DF.cats.concat([x.cat]):DF.cats;h+='<div class="cust" style="cursor:default"><select onchange="DF.exps['+i+'].cat=this.value">'+cl.map(function(c){return '<option'+(x.cat==c?' selected':'')+'>'+esc(c)+'</option>'}).join("")+'</select><label>Details<input value="'+esc(x.note)+'" oninput="DF.exps['+i+'].note=this.value"></label><div class="row">'+fin("Amount (\u20b9)","DF.exps["+i+"].amount",x.amount,1)+'<button class="ghost" style="flex:none;padding:6px 10px" onclick="DF.exps.splice('+i+',1);renderDF()">Remove</button></div></div>'});
-h+='<button class="ghost" onclick="DF.exps.push({cat:DF.cats[0],note:\'\',amount:\'\'});renderDF()">Add expense</button>';
+if(!wk){
+  h+=sect("Lubes and shop");
+  DF.items.forEach(function(it,i){h+='<div class="cust" style="cursor:default"><select onchange="DF.items['+i+'].item_id=this.value;dsum()"><option value="">Choose item</option>'+DF.stock.map(function(s){return '<option value="'+s.id+'"'+(it.item_id==s.id?' selected':'')+'>'+esc(s.name)+' ('+s.stock+' '+esc(s.unit)+' in stock) \u00b7 '+m2(s.sell)+'</option>'}).join("")+'</select><div class="row">'+fin("Quantity","DF.items["+i+"].qty",it.qty,1)+'<span class="sub" id="il'+i+'" style="text-align:right"></span><button class="ghost" style="flex:none;padding:6px 10px" onclick="DF.items.splice('+i+',1);renderDF()">Remove</button></div></div>'});
+  h+='<button class="ghost" onclick="DF.items.push({item_id:\'\',qty:\'\'});renderDF()">Add lube or shop item</button>';
+  h+=sect("Expenses paid from the till");
+  DF.exps.forEach(function(x,i){var cl=DF.cats.indexOf(x.cat)<0?DF.cats.concat([x.cat]):DF.cats;h+='<div class="cust" style="cursor:default"><select onchange="DF.exps['+i+'].cat=this.value">'+cl.map(function(c){return '<option'+(x.cat==c?' selected':'')+'>'+esc(c)+'</option>'}).join("")+'</select><label>Details<input value="'+esc(x.note)+'" oninput="DF.exps['+i+'].note=this.value"></label><div class="row">'+fin("Amount (\u20b9)","DF.exps["+i+"].amount",x.amount,1)+'<button class="ghost" style="flex:none;padding:6px 10px" onclick="DF.exps.splice('+i+',1);renderDF()">Remove</button></div></div>'});
+  h+='<button class="ghost" onclick="DF.exps.push({cat:DF.cats[0],note:\'\',amount:\'\'});renderDF()">Add expense</button>';
+}
 h+=sect("Money collected")+'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">'+DF.modes.map(function(m){return fin(esc(m.name),"DF.pay['"+m.key+"']",DF.pay[m.key]||"",1)}).join("")+'</div>';
 h+='<label>Note (optional)<input value="'+esc(DF.note)+'" oninput="DF.note=this.value"></label><div class="cust" id="dsum" style="cursor:default;margin-top:12px"></div><div class="err" id="er"></div>';
 setTimeout(dsum,0);return h}
@@ -1073,7 +1087,7 @@ return{id:d.id,mode:mode,modes:ctx.modes,cats:ctx.cats,stock:ctx.items,lines:d.l
 function dpay(){return{lines:DF.lines.map(function(l){return{nozzle_id:l.nozzle_id,opening:l.opening,closing:l.closing,testing:l.testing,rate:l.rate}}),items:DF.items,expenses:DF.exps,pay:DF.pay,note:DF.note}}
 function msg(m,good){var e=document.getElementById("er");if(e){e.style.color=good?"var(--ok)":"var(--due)";e.textContent=m}}
 function renderDF(){var m=DF.meta,h;
-if(DF.mode=="worker")h=ubar()+wnav()+'<h1>'+esc(m.shift)+' duty \u00b7 '+m.d+'</h1><div class="sub">Opening readings and rates are set by your manager. Credit sales you save during this duty are counted automatically.</div>'+formHtml()+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="wSave(0)">Save draft</button><button onclick="wSave(1)">Submit duty</button></div>';
+if(DF.mode=="worker")h=ubar()+wnav()+'<h1>'+esc(m.shift)+' duty \u00b7 '+m.d+'</h1><div class="sub">Opening readings and rates are set by your manager. Credit sales, lubes, and expenses saved in their tabs are counted automatically.</div>'+formHtml()+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="wSave(0)">Save draft</button><button onclick="wSave(1)">Submit duty</button></div>';
 else h=nav()+'<button class="ghost noprint" onclick="renderDutyTab()">Back to duty list</button><h1 style="margin-top:14px">'+esc(m.worker)+' \u00b7 '+esc(m.shift)+' \u00b7 '+m.d+'</h1><div class="sub">Check the figures, correct anything that is wrong, then close the duty.</div>'+formHtml()+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="mSave(0)">Save changes</button><button onclick="mSave(1)">Close duty</button></div>';
 document.getElementById("app").innerHTML=h}
 function dutyBlock(d,mn){var T=function(a,b,c){return '<tr><td>'+a+'</td><td class="r"'+(c?' style="color:'+c+'"':'')+'>'+b+'</td></tr>'};
@@ -1083,15 +1097,190 @@ if(d.expenses.length)h+='<div class="tbl" style="margin-top:8px"><table style="m
 h+='<div class="tbl" style="margin-top:8px"><table style="min-width:0">'+T("Fuel sales",m2(d.sales))+T("Lube and shop sales",m2(d.lube))+T("Less credit sales","\u2212"+m2(d.credit))+T("Less expenses","\u2212"+m2(d.exp))+T("<b>Expected collection</b>","<b>"+m2(d.expected)+"</b>")+Object.keys(d.pay).map(function(k){return T(esc(mn[k]||k),m2(d.pay[k]))}).join("")+T("<b>Collected</b>","<b>"+m2(d.collected)+"</b>")+T("<b>Difference</b>","<b>"+sgn(d.diff)+"</b>",Math.abs(d.diff)<1?'var(--ok)':'var(--due)')+'</table></div>'+(d.note?'<div class="sub" style="margin-top:6px">Note: '+esc(d.note)+'</div>':'')+'</div>';
 return h}
 // ---- Worker
-function loadW(){api("GET","/api/duty/current").then(function(r){WD=r;renderW()}).catch(function(e){document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>'})}
+function loadW(){
+  tab="wduty";
+  if(DF&&DF.id&&DF.mode=="worker"){renderDF();return}
+  api("GET","/api/duty/current").then(function(r){WD=r;renderW()}).catch(function(e){document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>'})
+}
 function renderW(){if(WD.duty){DF=fromDuty(WD.duty,{modes:WD.modes,cats:WD.cats,items:WD.items},"worker");return renderDF()}
 var h=ubar()+wnav()+'<h1>My duty</h1><div class="empty">No duty assigned yet. Your manager assigns your shift and nozzles.</div><h1 style="margin-top:22px">My recent duties</h1>';
 if(!WD.recent.length)h+='<div class="empty">No duties yet.</div>';
 WD.recent.forEach(function(d){h+='<div class="cust" tabindex="0" onclick="viewMyDuty('+d.id+')"><div class="row"><b>'+esc(d.shift)+' \u00b7 '+d.d+'</b><span class="sub" style="flex:none;color:'+(d.status=="closed"?'var(--ok)':'var(--warn)')+'">'+(d.status=="closed"?"Closed":"Waiting for manager")+'</span></div><div class="sub">'+d.litres+' L \u00b7 Sales '+inr(d.sales+d.lube)+' \u00b7 Collected '+inr(d.collected)+' \u00b7 '+sgn(d.diff)+'</div></div>'});
 document.getElementById("app").innerHTML=h}
 function viewMyDuty(id){api("GET","/api/my-duties/"+id).then(function(r){var mn={};r.modes.forEach(function(m){mn[m.key]=m.name});document.getElementById("app").innerHTML=ubar()+wnav()+'<button class="ghost" onclick="loadW()">Back to my duties</button><div style="margin-top:10px">'+dutyBlock(r.duty,mn)+'</div>'}).catch(function(e){toast(e.error||"Could not open the duty.")})}
-function wSave(sub){var go=function(){api(sub?"POST":"PUT","/api/duty/"+DF.id+(sub?"/submit":""),dpay()).then(function(){if(sub)loadW();else msg("Draft saved.",1)}).catch(function(e){msg(e.error||"Could not save. Check your connection.")})};
+function wSave(sub){var go=function(){api(sub?"POST":"PUT","/api/duty/"+DF.id+(sub?"/submit":""),dpay()).then(function(){if(sub){DF=null;loadW()}else msg("Draft saved.",1)}).catch(function(e){msg(e.error||"Could not save. Check your connection.")})};
 if(sub)ask("Submit this duty to the manager? You cannot change it after this.",go);else go()}
+
+function loadWLube(){
+  tab="wlube";
+  if(DF&&DF.meta&&DF.id){renderWLube();return}
+  document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Loading duty details\u2026</div>';
+  api("GET","/api/duty/current").then(function(r){
+    WD=r;
+    if(WD.duty){DF=fromDuty(WD.duty,{modes:WD.modes,cats:WD.cats,items:WD.items},"worker")}
+    renderWLube();
+  }).catch(function(e){
+    document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>';
+  });
+}
+
+function renderWLube(){
+  tab="wlube";
+  if(!DF||!DF.meta||!DF.id){
+    document.getElementById("app").innerHTML=ubar()+wnav()+'<h1>Lubes &amp; shop</h1><div class="empty">No duty assigned yet. Your manager assigns your shift before you can record lube and shop sales.</div>';
+    return;
+  }
+  var m=DF.meta,totalLube=0;
+  DF.items.forEach(function(it){
+    var s=DF.stock.filter(function(x){return x.id==it.item_id})[0];
+    if(s)totalLube+=Math.round(fnum(it.qty)*s.sell*100)/100;
+  });
+
+  var h=ubar()+wnav()+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">'+
+      '<div><h1>Lubes &amp; shop</h1><div class="sub">'+esc(m.shift)+' duty \u00b7 '+m.d+' \u00b7 Linked directly with duty collection</div></div>'+
+      '<div style="text-align:right"><button class="ghost" style="padding:6px 12px;font-size:13px" onclick="tab=\'wduty\';renderDF()">View duty form \u2192</button></div>'+
+    '</div>'+
+    '<div class="cust" style="cursor:default;margin:12px 0;background:var(--card)">'+
+      '<div class="row"><b>Total lube &amp; shop sales</b><span class="amt" style="flex:none;color:var(--ink)">'+inr(totalLube)+'</span></div>'+
+      '<div class="sub" style="margin-top:4px">'+DF.items.length+' item(s) recorded for this shift \u00b7 Counts towards expected collection</div>'+
+    '</div>';
+
+  h+='<h1 style="margin-top:18px;font-size:16px">+ Add lube or shop item</h1>'+
+    '<div class="cust" style="cursor:default;background:var(--card)">'+
+      '<label style="margin-top:4px">Product'+
+        '<select id="wl_item" onchange="calcWlPreview()">'+
+          '<option value="">Choose item from stock</option>'+
+          (DF.stock||[]).map(function(s){
+            return '<option value="'+s.id+'" data-price="'+s.sell+'" data-unit="'+esc(s.unit)+'">'+
+              esc(s.name)+' ('+s.stock+' '+esc(s.unit)+' in stock) \u00b7 '+inr(s.sell)+
+            '</option>';
+          }).join("")+
+        '</select>'+
+      '</label>'+
+      '<div class="row" style="margin-top:8px">'+
+        '<label>Quantity<input id="wl_qty" inputmode="decimal" placeholder="e.g. 1" oninput="calcWlPreview()"></label>'+
+        '<div style="flex:1;text-align:right;padding-top:20px"><span class="sub">Total: </span><b id="wl_preview" style="font-size:16px">\u20b90.00</b></div>'+
+      '</div>'+
+      '<div class="err" id="wl_err"></div>'+
+      '<button type="button" style="width:100%;margin-top:8px" onclick="addWLubeItem()">Add to duty</button>'+
+    '</div>';
+
+  h+='<h1 style="margin-top:24px;font-size:16px">Recorded items ('+DF.items.length+')</h1>';
+  if(!DF.items.length){
+    h+='<div class="empty">No lube or shop items added to this duty yet.</div>';
+  } else {
+    DF.items.forEach(function(it,i){
+      var s=DF.stock.filter(function(x){return x.id==it.item_id})[0];
+      var amt=s?Math.round(fnum(it.qty)*s.sell*100)/100:0;
+      h+='<div class="cust" style="cursor:default;margin-top:8px">'+
+        '<div class="row"><b>'+esc(s?s.name:"Unknown item")+'</b><span class="amt" style="flex:none">'+inr(amt)+'</span></div>'+
+        '<div class="row" style="margin-top:4px"><span class="sub">'+it.qty+' '+(s?esc(s.unit):"")+' \u00d7 '+inr(s?s.sell:0)+'</span>'+
+        '<button class="ghost" style="flex:none;padding:5px 10px;font-size:12px;color:var(--due)" onclick="removeWLubeItem('+i+')">Remove</button></div>'+
+      '</div>';
+    });
+  }
+  document.getElementById("app").innerHTML=h;
+}
+
+function calcWlPreview(){
+  var sel=document.getElementById("wl_item"),qEl=document.getElementById("wl_qty"),pEl=document.getElementById("wl_preview");
+  if(!sel||!qEl||!pEl)return;
+  var opt=sel.options[sel.selectedIndex],price=opt?parseFloat(opt.getAttribute("data-price")||0):0,qty=parseFloat(qEl.value||0);
+  pEl.textContent=inr(Math.round(qty*price*100)/100);
+}
+
+function addWLubeItem(){
+  var sel=document.getElementById("wl_item"),qEl=document.getElementById("wl_qty"),errEl=document.getElementById("wl_err");
+  if(!sel||!sel.value){if(errEl)errEl.textContent="Please choose an item.";return}
+  var qty=parseFloat(qEl.value);
+  if(!(qty>0)){if(errEl)errEl.textContent="Enter a quantity above zero.";return}
+  var ex=DF.items.filter(function(x){return x.item_id==sel.value})[0];
+  if(ex){ex.qty=Math.round((fnum(ex.qty)+qty)*100)/100}else{DF.items.push({item_id:sel.value,qty:qty})}
+  api("PUT","/api/duty/"+DF.id,dpay()).then(function(){toast("Lube item added to duty");renderWLube()}).catch(function(){renderWLube()});
+}
+
+function removeWLubeItem(idx){
+  DF.items.splice(idx,1);
+  api("PUT","/api/duty/"+DF.id,dpay()).then(function(){toast("Item removed");renderWLube()}).catch(function(){renderWLube()});
+}
+
+function loadWExp(){
+  tab="wexp";
+  if(DF&&DF.meta&&DF.id){renderWExp();return}
+  document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Loading duty details\u2026</div>';
+  api("GET","/api/duty/current").then(function(r){
+    WD=r;
+    if(WD.duty){DF=fromDuty(WD.duty,{modes:WD.modes,cats:WD.cats,items:WD.items},"worker")}
+    renderWExp();
+  }).catch(function(e){
+    document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>';
+  });
+}
+
+function renderWExp(){
+  tab="wexp";
+  if(!DF||!DF.meta||!DF.id){
+    document.getElementById("app").innerHTML=ubar()+wnav()+'<h1>Expenses</h1><div class="empty">No duty assigned yet. Your manager assigns your shift before you can record expenses.</div>';
+    return;
+  }
+  var m=DF.meta,totalExp=0;
+  DF.exps.forEach(function(x){totalExp+=fnum(x.amount)});
+
+  var h=ubar()+wnav()+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">'+
+      '<div><h1>Expenses paid from till</h1><div class="sub">'+esc(m.shift)+' duty \u00b7 '+m.d+' \u00b7 Deducted from expected cash collection</div></div>'+
+      '<div style="text-align:right"><button class="ghost" style="padding:6px 12px;font-size:13px" onclick="tab=\'wduty\';renderDF()">View duty form \u2192</button></div>'+
+    '</div>'+
+    '<div class="cust" style="cursor:default;margin:12px 0;background:var(--card)">'+
+      '<div class="row"><b>Total expenses paid from till</b><span class="amt" style="flex:none;color:var(--due)">&minus;'+inr(totalExp)+'</span></div>'+
+      '<div class="sub" style="margin-top:4px">'+DF.exps.length+' entry(s) recorded for this shift \u00b7 Deducted from expected collection</div>'+
+    '</div>';
+
+  h+='<h1 style="margin-top:18px;font-size:16px">+ Record expense from till</h1>'+
+    '<div class="cust" style="cursor:default;background:var(--card)">'+
+      '<label style="margin-top:4px">Category'+
+        '<select id="we_cat">'+
+          (DF.cats||[]).map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>'}).join("")+
+        '</select>'+
+      '</label>'+
+      '<label style="margin-top:8px">Details / Note (optional)'+
+        '<input id="we_note" placeholder="e.g. Tea and snacks, generator fuel, cleaning">'+
+      '</label>'+
+      '<label style="margin-top:8px">Amount (\u20b9)'+
+        '<input id="we_amt" inputmode="decimal" placeholder="e.g. 150">'+
+      '</label>'+
+      '<div class="err" id="we_err"></div>'+
+      '<button type="button" style="width:100%;margin-top:8px" onclick="addWExpItem()">Record expense</button>'+
+    '</div>';
+
+  h+='<h1 style="margin-top:24px;font-size:16px">Recorded expenses ('+DF.exps.length+')</h1>';
+  if(!DF.exps.length){
+    h+='<div class="empty">No expenses paid from the till during this duty.</div>';
+  } else {
+    DF.exps.forEach(function(x,i){
+      h+='<div class="cust" style="cursor:default;margin-top:8px">'+
+        '<div class="row"><b>'+esc(x.cat)+'</b><span class="amt" style="flex:none;color:var(--due)">&minus;'+inr(x.amount)+'</span></div>'+
+        '<div class="row" style="margin-top:4px"><span class="sub">'+(x.note?esc(x.note):"No details")+'</span>'+
+        '<button class="ghost" style="flex:none;padding:5px 10px;font-size:12px;color:var(--due)" onclick="removeWExpItem('+i+')">Remove</button></div>'+
+      '</div>';
+    });
+  }
+  document.getElementById("app").innerHTML=h;
+}
+
+function addWExpItem(){
+  var catEl=document.getElementById("we_cat"),noteEl=document.getElementById("we_note"),amtEl=document.getElementById("we_amt"),errEl=document.getElementById("we_err");
+  var amt=parseFloat(amtEl.value);
+  if(!(amt>0)){if(errEl)errEl.textContent="Enter an amount above zero.";return}
+  DF.exps.push({cat:catEl.value||(DF.cats&&DF.cats[0])||"Other",note:noteEl.value||"",amount:amt});
+  api("PUT","/api/duty/"+DF.id,dpay()).then(function(){toast("Expense recorded and deducted from duty");renderWExp()}).catch(function(){renderWExp()});
+}
+
+function removeWExpItem(idx){
+  DF.exps.splice(idx,1);
+  api("PUT","/api/duty/"+DF.id,dpay()).then(function(){toast("Expense removed");renderWExp()}).catch(function(){renderWExp()});
+}
 // ---- Manager: assign, review, close day, reports
 function reloadState(cb){api("GET","/api/state").then(function(r){VERS=r.vers||{};S=r.state||emptyS();normS();snapAll();pullDuty(cb)}).catch(function(){cb&&cb()})}
 function renderDutyTab(){var A=document.getElementById("app");if(!SRV){A.innerHTML=nav()+'<div class="empty">Duty entries need the server. They are not available in this preview.</div>';return}
@@ -1214,13 +1403,15 @@ function renderSidebar() {
   document.body.classList.remove("no-sidebar");
   sb.style.display = "";
   var curTh = getVyaparTheme();
-  var bizName = (S && S.biz && S.biz.name) ? S.biz.name : "Vyapar Pump";
-  var bizGst = (S && S.biz && S.biz.gst) ? S.biz.gst : "";
+  var bizName = (ME && ME.pump_name) ? ME.pump_name : ((S && S.biz && S.biz.name) ? S.biz.name : "Petrol Pump");
+  var bizGst = (ME && ME.pump_code) ? (ME.pump_code + (S && S.biz && S.biz.gst ? " &bull; " + S.biz.gst : "")) : ((S && S.biz && S.biz.gst) ? S.biz.gst : "Fuel Station");
 
   var navItems = [];
   if (ME.role === "worker") {
     navItems = [
       { id: "wduty", label: "My Duty", icon: "⛽", action: "tab='wduty';loadW()" },
+      { id: "wlube", label: "Lubes & Shop", icon: "🛢️", action: "tab='wlube';loadWLube()" },
+      { id: "wexp", label: "Expenses", icon: "💸", action: "tab='wexp';loadWExp()" },
       { id: "credit", label: "Credit Sale", icon: "💳", action: "tab='credit';loadCredit()" },
       { id: "wdip", label: "Tank Dip", icon: "📏", action: "tab='wdip';loadDip()" },
       { id: "mypay", label: "My Pay", icon: "💵", action: "tab='mypay';loadMyPay()" }
@@ -1248,11 +1439,12 @@ function renderSidebar() {
 
   var activeThBadge = curTh === "standard" ? "Standard" : (curTh === "trending" ? "Trending" : "Modern");
 
-  var h = '<div class="sidebar-brand">' +
+  var h = '<div class="sidebar-brand"' + (ME.role === "owner" ? ' onclick="stationSwitcherModal()" style="cursor:pointer" title="Click to manage or switch stations"' : '') + '>' +
     '<div style="font-size:15px;font-weight:800;letter-spacing:-0.2px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(bizName) + '">' + esc(bizName) + '</div>' +
     '<div style="font-size:11px;opacity:0.88;margin-top:2px;display:flex;align-items:center;gap:4px">' +
-      '<span class="brand-sub-text">' + (bizGst ? esc(bizGst) : "Fuel Station") + '</span>' +
+      '<span class="brand-sub-text">' + bizGst + '</span>' +
       '<span style="background:rgba(255,255,255,0.22);padding:1px 5px;border-radius:4px;font-size:9.5px;font-weight:700">' + activeThBadge + '</span>' +
+      (ME.role === "owner" ? '<span style="font-size:9.5px;opacity:0.8">&bull; Switch &#x25BE;</span>' : '') +
     '</div>' +
   '</div>';
 
@@ -1294,7 +1486,7 @@ try {
 // ---- Pump setup (owner)
 function rateNow(f,d){var b=null;S.rates.forEach(function(r){if(r.fuel==f&&r.from<=d&&(!b||r.from>b.from||(r.from==b.from&&r.id>b.id)))b=r});return b}
 function renderSetup(){var A=document.getElementById("app");if(!SRV){A.innerHTML=nav()+'<div class="empty">Pump setup needs the server. It is not available in this preview.</div>';return}
-tab="setup";var T=[["nozzles","Nozzles"],["open","Opening readings"],["rates","Fuel rates"],["cats","Expense categories"],["modes","Payment modes"],["cust","Credit customers"],["fuels","Fuel products"],["theme","Theme switcher"],["audit","Audit log"]];
+tab="setup";var T=[["nozzles","Nozzles"],["open","Opening readings"],["rates","Fuel rates"],["cats","Expense categories"],["modes","Payment modes"],["cust","Credit customers"],["fuels","Fuel products"],["station","Station & Outlets"],["theme","Theme switcher"],["audit","Audit log"]];
 var h=nav()+'<h1>Pump setup</h1><div class="setup-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px">'+T.map(function(t){return '<button style="padding:9px 2px;font-size:13px;min-width:0" class="'+(SU==t[0]?'':'ghost')+'" onclick="SU=\''+t[0]+'\';renderSetup()">'+t[1]+'</button>'}).join("")+'</div>';
 var tn=function(id){var t=S.tanks.filter(function(x){return x.id==id})[0];return t?t.name:"No tank"};
 if(SU=="nozzles"){h+='<div class="btns"><button onclick="nozEdit(0)">Add nozzle</button></div>';if(!S.nozzles.length)h+='<div class="empty">No nozzles yet.</div>';
@@ -1312,6 +1504,21 @@ else if(SU=="modes"){h+='<div class="sub">Turn off the payment modes you do not 
 h+='<label>Add a payment mode<input id="nm" placeholder="e.g. Fleet card"></label><div class="err" id="er"></div><button style="margin-top:10px" onclick="modeAdd()">Add mode</button>'}
 else if(SU=="fuels"){h+='<div class="sub">The fuels you sell. Choose a unit for each (litre, kg for CNG, kWh for EV charging). Density limits are used to flag density checks on liquid fuels. The limits shown first are common defaults: confirm them with your oil company and change them here.</div><div class="btns"><button onclick="fuelEdit(-1)">Add fuel product</button></div>';
 fprods().forEach(function(p,i){var cf=p.unit=="L"?'<div class="sub">Density '+(p.dmin!=null&&p.dmin!==""?p.dmin:(DENSD[p.name]?DENSD[p.name][0]:"no limit"))+' to '+(p.dmax!=null&&p.dmax!==""?p.dmax:(DENSD[p.name]?DENSD[p.name][1]:"no limit"))+' \u00b7 tolerance '+(p.dtol!=null&&p.dtol!==""?p.dtol:0.003)+'</div>':'';h+='<div class="cust" style="cursor:default'+(p.active===false?';opacity:.6':'')+'"><div class="row"><b>'+esc(p.name)+'</b><span class="sub" style="flex:none">'+esc(p.unit)+(p.active===false?' \u00b7 inactive':'')+'</span></div>'+cf+'<div class="btns" style="margin:8px 0 0"><button class="ghost" style="padding:6px 10px" onclick="fuelEdit('+i+')">Edit</button></div></div>'})}
+else if(SU=="station"){
+  h+='<div class="sub" style="margin-bottom:12px">Multi-Customer SaaS Data Isolation. All pump nozzles, tanks, duties, credit sales, ledgers, and team members are strictly isolated to your active station.</div>'+
+    '<div class="cust" style="cursor:default;margin-bottom:16px;border:2px solid var(--theme-accent);background:var(--card)">'+
+      '<div class="row" style="align-items:center;margin-bottom:6px"><b>Current Station Details</b><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--theme-accent-soft);color:var(--theme-accent)">Active Station</span></div>'+
+      '<label style="margin-top:8px">Station / Pump Name<input id="st_name" value="'+esc(ME.pump_name || "")+'"></label>'+
+      '<label>Station Code (Unique identifier)<input id="st_code" autocapitalize="characters" value="'+esc(ME.pump_code || "")+'"></label>'+
+      '<div class="sub" style="margin:4px 0 10px">Station ID: #'+esc(ME.pump_id)+' &bull; Multi-customer tenant isolated</div>'+
+      '<div class="err" id="er"></div>'+
+      '<div class="btns" style="margin-top:10px"><button onclick="saveStationInfo()">Save Station Info</button></div>'+
+    '</div>'+
+    '<h1 style="font-size:17px;font-weight:800;color:var(--ink);margin:18px 0 6px">Your Outlets & Stations</h1>'+
+    '<div class="sub" style="margin-bottom:10px">Manage multiple petrol pump locations under your account. Switch between stations anytime.</div>'+
+    '<div id="setup-pump-list"><div class="empty">Loading stations\u2026</div></div>'+
+    '<div class="btns" style="margin-top:14px"><button onclick="newStationModal()">+ Add New Station Outlet</button></div>';
+}
 else if(SU=="theme"){
   var curTheme = getVyaparTheme();
   h+='<div class="sub" style="margin-bottom:12px">Choose from the 3 themes inspired by the Vyapar app. Responsive for desktop, tablet, and mobile displays.</div>';
@@ -1345,7 +1552,7 @@ else if(SU=="theme"){
 }
 else if(SU=="audit"){h+='<div class="sub">Every change is recorded here with who made it and when. Only the owner can see this.</div><label>Search<input id="aq" placeholder="Name, action or text" onchange="loadAudit()"></label><div id="al" style="margin-top:8px"></div>'}
 else{h+='<div class="sub">Inactive customers are hidden from workers and invoices. Their ledger stays.</div>';if(!S.c.length)h+='<div class="empty">No credit customers yet.</div>';S.c.forEach(function(c){h+='<div class="row" style="margin-top:8px"><span>'+esc(c.name)+'</span><button class="'+(c.active===false?'ghost':'')+'" style="flex:none;padding:6px 10px" onclick="custTog('+c.id+')">'+(c.active===false?'Inactive':'Active')+'</button></div>'})}
-A.innerHTML=h;if(SU=="audit")loadAudit()}
+A.innerHTML=h;if(SU=="audit")loadAudit();if(SU=="station")loadSetupPumps()}
 function nozEdit(id){var n=id?S.nozzles.filter(function(x){return x.id==id})[0]:{name:"",fuel:fuelNames()[0],tank_id:"",active:true,open:""};
 openM('<h2>'+(id?'Edit nozzle':'Add nozzle')+'</h2><label>Name<input id="n1" placeholder="e.g. Nozzle 1" value="'+esc(n.name)+'"></label><label>Fuel<select id="n2">'+fuelNames().map(function(f){return '<option'+(f==n.fuel?' selected':'')+'>'+f+'</option>'}).join("")+'</select></label><label>Tank<select id="n3"><option value="">No tank linked</option>'+S.tanks.map(function(t){return '<option value="'+t.id+'"'+(n.tank_id==t.id?' selected':'')+'>'+esc(t.name)+'</option>'}).join("")+'</select></label><label>Status<select id="n4"><option value="1"'+(n.active!==false?' selected':'')+'>Active</option><option value="0"'+(n.active===false?' selected':'')+'>Inactive</option></select></label><label>Opening reading for its first duty<input id="n5" inputmode="decimal" value="'+(n.open==null?"":n.open)+'"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveNoz('+id+')">Save nozzle</button></div>')}
 function saveNoz(id){var nm=v("n1"),op=v("n5");if(!nm)return er("Enter a nozzle name.");if(op!==""&&isNaN(parseFloat(op)))return er("Opening reading must be a number.");
@@ -1787,12 +1994,15 @@ function densHtml(DREG) {
     rows = rows.filter(function(r) { return String(r.tank_id) === String(DENS_FILTER.tank_id); });
   }
 
-  var h = '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin:32px 0 10px;flex-wrap:wrap;gap:10px">' +
+  var h = '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin:28px 0 10px;flex-wrap:wrap;gap:10px">' +
     '<div>' +
       '<h1 style="margin:0;color:var(--ink);font-size:18px;font-weight:800">Daily Density Register (Statutory Standard)</h1>' +
       '<div class="sub" style="margin-top:3px">Morning U/G tank density @ 15°C, tanker receipt compartment checks, and decantation audit</div>' +
     '</div>' +
     '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<div style="font-size:11.5px;color:var(--mute);background:var(--card);padding:6px 12px;border-radius:8px;border:1px solid var(--line);font-family:monospace;line-height:1.4">' +
+        '<b>Morning U/G Density</b> @ 15&deg;C &bull; <b>Mix Density</b> = Avg(I, II, III, IV) &bull; <b>Dif in Density</b> = Mix &minus; Challan (&le; 3.0 kg/m&sup3;) &bull; <b>100L Flush</b>' +
+      '</div>' +
       '<label style="font-size:12px;margin:0;display:flex;align-items:center;gap:6px">' +
         '<span style="color:var(--mute)">Filter tank:</span>' +
         '<select onchange="DENS_FILTER.tank_id=this.value;renderTanks()" style="font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)">' +
@@ -1802,71 +2012,71 @@ function densHtml(DREG) {
           }).join('') +
         '</select>' +
       '</label>' +
-      '<button onclick="densRegisterForm()" style="font-size:12px;padding:6px 12px">+ Record density check</button>' +
+      '<button onclick="densRegisterForm()" style="font-size:12px;padding:7px 12px">+ Record density check</button>' +
     '</div>' +
   '</div>';
 
-  h += '<div class="tbl" style="margin-bottom:24px;overflow-x:auto">' +
-    '<table style="min-width:1280px;border-collapse:collapse;font-size:12px;border:1px solid #cbd5e1">' +
+  h += '<div class="tbl" style="margin-bottom:20px;overflow-x:auto">' +
+    '<table style="min-width:1240px">' +
       '<thead>' +
-        '<tr style="background:#fde047;color:#1e293b;border-bottom:1px solid #cbd5e1;font-weight:800;font-size:12px">' +
-          '<th rowspan="2" style="border:1px solid #cbd5e1;padding:8px 6px;text-align:center;vertical-align:middle;white-space:nowrap">Date</th>' +
-          '<th colspan="3" style="border:1px solid #cbd5e1;padding:8px 4px;text-align:center">Morning Density at 15\'C U/G Tanks</th>' +
-          '<th colspan="4" style="border:1px solid #cbd5e1;padding:8px 4px;text-align:center">Tank/Truck Receipt Density Compartment</th>' +
-          '<th rowspan="2" style="border:1px solid #cbd5e1;padding:8px 4px;text-align:center;vertical-align:middle;white-space:nowrap">Mix<br>Compart-<br>ment<br><span style="font-size:10px;font-weight:600">Density</span></th>' +
-          '<th rowspan="2" style="border:1px solid #cbd5e1;padding:8px 4px;text-align:center;vertical-align:middle;white-space:nowrap">Density at<br>15\'C as per<br>chalan</th>' +
-          '<th rowspan="2" style="border:1px solid #cbd5e1;padding:8px 4px;text-align:center;vertical-align:middle;white-space:nowrap">Dif in<br>Density<br><span style="font-size:10px;font-weight:600">Mix &amp; Chalan</span></th>' +
-          '<th colspan="2" style="border:1px solid #cbd5e1;padding:8px 4px;text-align:center">Stock Before Receipt</th>' +
-          '<th colspan="3" style="border:1px solid #cbd5e1;padding:8px 4px;text-align:center">Density at 15\'C After Decantation and After Dispensing 100 lts</th>' +
-          '<th rowspan="2" style="border:1px solid #cbd5e1;padding:8px 4px;text-align:center;vertical-align:middle;width:55px">Action</th>' +
+        '<tr style="background:rgba(0,0,0,0.02)">' +
+          '<th rowspan="2" style="white-space:nowrap;padding:10px;text-align:left;vertical-align:middle">Date / Tank</th>' +
+          '<th colspan="3" style="white-space:nowrap;padding:10px;text-align:center;background:rgba(37,99,235,0.04);color:var(--ink);font-weight:800">Morning Density at 15&deg;C U/G Tanks</th>' +
+          '<th colspan="4" style="white-space:nowrap;padding:10px;text-align:center;color:var(--ink);font-weight:800">Tank/Truck Receipt Density Compartment</th>' +
+          '<th rowspan="2" class="r" style="white-space:nowrap;padding:10px;text-align:right;vertical-align:middle;font-weight:800">Mix<br>Density</th>' +
+          '<th rowspan="2" class="r" style="white-space:nowrap;padding:10px;text-align:right;vertical-align:middle">Density @ 15&deg;C<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">As per challan</span></th>' +
+          '<th rowspan="2" class="r" style="white-space:nowrap;padding:10px;text-align:right;vertical-align:middle;font-weight:800">Dif in Density<br><span style="font-size:10.5px;font-weight:normal;color:var(--mute)">Mix &minus; Challan</span></th>' +
+          '<th colspan="2" style="white-space:nowrap;padding:10px;text-align:center;color:var(--ink);font-weight:800">Stock Before Receipt</th>' +
+          '<th colspan="3" style="white-space:nowrap;padding:10px;text-align:center;background:rgba(16,185,129,0.04);color:var(--ink);font-weight:800">After Decantation (100L Flush)</th>' +
+          '<th rowspan="2" style="text-align:center;vertical-align:middle;width:65px;padding:10px">Action</th>' +
         '</tr>' +
-        '<tr style="background:#fef08a;color:#1e293b;font-weight:700;font-size:11px">' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right">Density</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right">Temp</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right">Density At 15\'C</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right;width:50px">I</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right;width:50px">II</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right;width:50px">III</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right;width:50px">IV</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right">Dip</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right">Stock</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right">Density</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:right">Receipt KL</th>' +
-          '<th style="border:1px solid #cbd5e1;padding:6px 4px;text-align:center">Chalaan no</th>' +
+        '<tr style="background:rgba(0,0,0,0.015);color:var(--mute);font-weight:700;font-size:11px">' +
+          '<th class="r" style="padding:8px 6px">Density</th>' +
+          '<th class="r" style="padding:8px 6px">Temp</th>' +
+          '<th class="r" style="padding:8px 6px;color:var(--ink);background:rgba(37,99,235,0.06);font-weight:800">At 15&deg;C</th>' +
+          '<th class="r" style="padding:8px 6px;width:48px">I</th>' +
+          '<th class="r" style="padding:8px 6px;width:48px">II</th>' +
+          '<th class="r" style="padding:8px 6px;width:48px">III</th>' +
+          '<th class="r" style="padding:8px 6px;width:48px">IV</th>' +
+          '<th class="r" style="padding:8px 6px">Dip</th>' +
+          '<th class="r" style="padding:8px 6px">Stock</th>' +
+          '<th class="r" style="padding:8px 6px;color:var(--ink);background:rgba(16,185,129,0.06);font-weight:800">Density</th>' +
+          '<th class="r" style="padding:8px 6px">Receipt KL</th>' +
+          '<th style="padding:8px 6px;text-align:center">Challan no</th>' +
         '</tr>' +
       '</thead>' +
       '<tbody>';
 
   if (!rows.length) {
-    h += '<tr><td colspan="16" style="padding:24px;text-align:center;color:var(--mute)">No density checks recorded yet. Click <b>+ Record density check</b> to add an entry.</td></tr>';
+    h += '<tr><td colspan="16" style="padding:28px 10px;text-align:center;color:var(--mute)">No density checks recorded yet. Click <b>+ Record density check</b> to add an entry.</td></tr>';
   } else {
     rows.forEach(function(r) {
       var dParts = (r.d || '').split('-');
       var dFmt = dParts.length === 3 ? (parseInt(dParts[2], 10) + '/' + parseInt(dParts[1], 10) + '/' + dParts[0]) : r.d;
       var isWarning = r.dens_diff != null && Math.abs(r.dens_diff) > 3.0;
 
-      h += '<tr style="border-bottom:1px solid #e2e8f0">' +
-        '<td style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;white-space:nowrap">' +
+      h += '<tr>' +
+        '<td style="vertical-align:middle;padding:10px;white-space:nowrap">' +
           '<span style="font-weight:700;color:var(--ink)">' + esc(dFmt) + '</span>' +
-          (!DENS_FILTER.tank_id && r.tank_name ? '<div class="sub" style="font-size:10.5px">' + esc(r.tank_name) + (r.fuel ? ' &bull; ' + esc(r.fuel) : '') + '</div>' : '') +
+          (!DENS_FILTER.tank_id && r.tank_name ? '<div class="sub" style="font-size:11px;margin-top:2px">' + esc(r.tank_name) + (r.fuel ? ' &bull; ' + esc(r.fuel) : '') + '</div>' : '') +
         '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (fld(r.m_obs) || '&mdash;') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (fld(r.m_temp) || '&mdash;') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink)">' + (fld(r.m_d15) || '&mdash;') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 6px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (fld(r.comp1) || '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 6px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (fld(r.comp2) || '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 6px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (fld(r.comp3) || '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 6px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (fld(r.comp4) || '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums;font-weight:600">' + (fld(r.mix_dens) || '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (fld(r.chalan_dens) || '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums;font-weight:700;' + (isWarning ? 'color:var(--due);background:rgba(239,68,68,0.06)' : '') + '">' + (r.dens_diff != null ? fld(r.dens_diff) : '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (fld(r.pre_dip) || '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (r.pre_stock != null ? lt(r.pre_stock) : '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums;font-weight:600">' + (fld(r.post_dens) || '') + '</td>' +
-        '<td class="r" style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;font-variant-numeric:tabular-nums">' + (r.receipt_kl != null ? (fld(r.receipt_kl) + ' KL') : '') + '</td>' +
-        '<td style="border:1px solid #cbd5e1;padding:6px 8px;vertical-align:middle;text-align:center;font-size:11px">' + esc(r.chalan_no || '') + '</td>' +
-        '<td style="border:1px solid #cbd5e1;padding:4px;vertical-align:middle;text-align:center">' +
-          (r.id > 0 ? '<button class="ghost" style="padding:2px 6px;font-size:11px" onclick="delDensReg(' + r.id + ')">Delete</button>' : '<span style="color:var(--mute)">&mdash;</span>') +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.m_obs) || '&mdash;') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.m_temp) || '&mdash;') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(37,99,235,0.06);font-weight:800;color:var(--ink)">' + (fld(r.m_d15) || '&mdash;') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px 6px;font-variant-numeric:tabular-nums">' + (fld(r.comp1) || '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px 6px;font-variant-numeric:tabular-nums">' + (fld(r.comp2) || '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px 6px;font-variant-numeric:tabular-nums">' + (fld(r.comp3) || '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px 6px;font-variant-numeric:tabular-nums">' + (fld(r.comp4) || '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:700">' + (fld(r.mix_dens) || '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.chalan_dens) || '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;font-weight:800;font-size:14px;color:' + (r.dens_diff != null ? (isWarning ? 'var(--due)' : 'var(--ok)') : 'inherit') + '">' + (r.dens_diff != null ? fld(r.dens_diff) : '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (fld(r.pre_dip) || '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (r.pre_stock != null ? lt(r.pre_stock) : '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums;background:rgba(16,185,129,0.06);font-weight:800;color:var(--ink)">' + (fld(r.post_dens) || '') + '</td>' +
+        '<td class="r" style="vertical-align:middle;padding:10px;font-variant-numeric:tabular-nums">' + (r.receipt_kl != null ? (fld(r.receipt_kl) + ' KL') : '') + '</td>' +
+        '<td style="vertical-align:middle;padding:10px;text-align:center;font-size:12px">' + esc(r.chalan_no || '') + '</td>' +
+        '<td style="vertical-align:middle;text-align:center;padding:10px">' +
+          (r.id > 0 ? '<button class="ghost" style="padding:4px 8px;font-size:12px" title="Delete density check" onclick="delDensReg(' + r.id + ')">Delete</button>' : '<span style="color:var(--mute)">&mdash;</span>') +
         '</td>' +
       '</tr>';
     });
@@ -1883,7 +2093,7 @@ function densRegisterForm() {
     '<div class="row"><label>Date<input id="dr_d" type="date" value="' + todayStr + '"></label>' +
     '<label>Tank<select id="dr_tank">' + S.tanks.map(function(t){return '<option value="' + t.id + '">' + esc(t.name) + ' (' + esc(t.fuel) + ')</option>'}).join("") + '</select></label></div>' +
     
-    '<div style="font-weight:700;margin:14px 0 4px;color:var(--btn)">1. Morning Density at 15°C U/G Tanks</div>' +
+    '<div style="font-weight:800;margin:14px 0 4px;color:var(--ink)">1. Morning Density at 15°C U/G Tanks</div>' +
     '<div class="row">' +
       '<label>Observed Density<input id="dr_m_obs" inputmode="decimal" placeholder="e.g. 732.0" oninput="autoCalcD15()"></label>' +
       '<label>Temp (°C)<input id="dr_m_temp" inputmode="decimal" placeholder="e.g. 27.0" oninput="autoCalcD15()"></label>' +
@@ -2102,16 +2312,199 @@ list.forEach(function(n){var p=n.parentNode,tag=p&&p.tagName;if(tag=="OPTION"&&!
 [].forEach.call(root.querySelectorAll("[placeholder]"),function(e){var t=trText(e.getAttribute("placeholder"));if(t!=null)e.setAttribute("placeholder",t)})})}
 function startI18n(){if(I18||!window.MutationObserver)return;var obs=function(){["app","sheet"].forEach(function(id){var e=document.getElementById(id);if(e)I18.observe(e,{childList:true,subtree:true,characterData:true})})};
 I18=new MutationObserver(function(){if(LANG=="en")return;I18.disconnect();trAll();obs()});obs()}
-function setLang(l){LANG=l;api("POST","/api/lang",{lang:l}).catch(function(){});var f={wduty:loadW,credit:loadCredit,wdip:loadDip,mypay:loadMyPay}[tab];if(f)f();trAll()}
+function setLang(l){LANG=l;api("POST","/api/lang",{lang:l}).catch(function(){});var f={wduty:loadW,wlube:loadWLube,wexp:loadWExp,credit:loadCredit,wdip:loadDip,mypay:loadMyPay}[tab];if(f)f();trAll()}
 function langSel(){return '<select style="flex:none;width:auto;padding:5px 6px;margin:0" onchange="setLang(this.value)" aria-label="Language"><option value="en"'+(LANG=="en"?' selected':'')+'>English</option><option value="mr"'+(LANG=="mr"?' selected':'')+'>मराठी</option><option value="hi"'+(LANG=="hi"?' selected':'')+'>हिन्दी</option></select>'}
-function ubar(){return SRV&&ME?'<div class="user-bar-top row noprint" style="margin-bottom:10px;gap:6px"><span class="sub" style="flex:1">'+esc(ME.name)+' ('+ME.role+')</span>'+(ME.role=="worker"?langSel():"")+'<button class="ghost" style="padding:5px 10px;flex:none" onclick="pwForm()">Password</button><button class="ghost" style="padding:5px 10px;flex:none" onclick="logout()">Log out</button></div>':''}
+function ubar(){
+  if (!SRV || !ME) return '';
+  return '<div class="user-bar-top row noprint" style="margin-bottom:10px;gap:6px;align-items:center;flex-wrap:wrap">' +
+    '<span class="sub" style="flex:1;min-width:180px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+      '<b style="color:var(--ink)">' + esc(ME.pump_name || "Petrol Pump") + '</b>' +
+      (ME.pump_code ? '<span style="background:var(--theme-accent-soft);color:var(--theme-accent);padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">' + esc(ME.pump_code) + '</span>' : '') +
+      '<span style="opacity:0.75">&bull; ' + esc(ME.name) + ' (' + esc(ME.role) + ')</span>' +
+    '</span>' +
+    (ME.role == "worker" ? langSel() : "") +
+    (ME.role == "owner" ? '<button class="ghost" style="padding:5px 10px;flex:none" onclick="stationSwitcherModal()" title="Switch or manage stations">Stations</button>' : '') +
+    '<button class="ghost" style="padding:5px 10px;flex:none" onclick="pwForm()">Password</button>' +
+    '<button class="ghost" style="padding:5px 10px;flex:none" onclick="logout()">Log out</button>' +
+  '</div>';
+}
 function boot(){api("GET","/api/me").then(function(m){SRV=true;ME=m.user;if(m.biz){DD=m.biz;SF=m.biz.slice(0,8)+"01";ST=m.biz;VM=m.biz.slice(0,7)}if(!ME)return authView(m.setup);start()}).catch(function(){SRV=false;localStart()})}
 function start(){view=null;renderSidebar();if(ME.role=="worker"){LANG=ME.lang||"en";startI18n();tab="wduty";return loadW()}tab="ledger";
 api("GET","/api/state").then(function(r){VERS=r.vers||{};S=r.state||emptyS();normS();snapAll();pullDuty(render)}).catch(function(e){badge("Could not load data: "+(e.error||"check your connection"))})}
-function authView(setup){document.body.classList.add("no-sidebar");renderSidebar();var h='<h1 style="font-size:22px;color:var(--ink);font-weight:800;margin:20px 0 4px">Petrol pump manager</h1><div class="sub">'+(setup?'Create the owner account to get started.':'Log in with your mobile number and password.')+'</div>'+(setup?'<label>Your name<input id="a0"></label>':'')+'<label>Mobile number<input id="a1" inputmode="tel" autocomplete="username"></label><label>Password<input id="a2" type="password" autocomplete="'+(setup?'new-password':'current-password')+'"></label><div class="err" id="er"></div><button style="width:100%;margin-top:6px" onclick="doAuth('+(setup?1:0)+')">'+(setup?'Create owner account':'Log in')+'</button>';
-document.getElementById("app").innerHTML=h;document.getElementById("a2").onkeydown=function(e){if(e.key=="Enter")doAuth(setup?1:0)}}
-function doAuth(setup){var b={mobile:v("a1"),password:document.getElementById("a2").value};if(setup)b.name=v("a0");api("POST",setup?"/api/setup":"/api/login",b).then(function(r){if(r.token){AUTH_TOKEN=r.token;try{localStorage.setItem("petrol_auth_token",r.token)}catch(e){}}ME=r.user;start()}).catch(function(e){er(e.error||"Could not log in. Check your connection.")})}
-function logout(){try{localStorage.removeItem("petrol_auth_token")}catch(e){}AUTH_TOKEN="";api("POST","/api/logout").then(function(){location.reload()}).catch(function(){location.reload()})}
+var fbAuth = null, fbProvider = null;
+function initFbAuth(cb) {
+  if (fbAuth) { if (cb) cb(); return; }
+  if (window.firebase) {
+    api("GET", "/api/firebase-config").then(function(cfg) {
+      if (cfg && cfg.apiKey) {
+        if (!firebase.apps.length) {
+          firebase.initializeApp(cfg);
+        }
+        fbAuth = firebase.auth();
+        fbProvider = new firebase.auth.GoogleAuthProvider();
+        if (cb) cb();
+      }
+    }).catch(function() {});
+  }
+}
+function doGoogleAuth() {
+  initFbAuth(function() {
+    if (!fbAuth) return er("Authentication service unavailable.");
+    fbAuth.signInWithPopup(fbProvider).then(function(res) {
+      return res.user.getIdToken();
+    }).then(function(idToken) {
+      return api("POST", "/api/auth/google", { idToken: idToken });
+    }).then(function(r) {
+      if (r.token) {
+        AUTH_TOKEN = r.token;
+        try { localStorage.setItem("petrol_auth_token", r.token); } catch(e) {}
+      }
+      ME = r.user;
+      start();
+    }).catch(function(e) {
+      er(e.message || e.error || "Google sign-in could not be completed.");
+    });
+  });
+}
+function authView(setup, mode){
+  document.body.classList.add("no-sidebar");
+  renderSidebar();
+  initFbAuth();
+  var isReg = (mode === 'register') || (!mode && setup);
+  var h = '<h1 style="font-size:22px;color:var(--ink);font-weight:800;margin:20px 0 4px">Petrol Pump Manager</h1>' +
+    '<div class="sub">' + (isReg ? 'Register your petrol pump station for isolated business management.' : 'Sign in to access your station management portal.') + '</div>' +
+    '<div style="display:flex;gap:6px;margin:16px 0 14px;border-bottom:1px solid var(--line);padding-bottom:10px">' +
+      '<button type="button" style="flex:1;padding:8px 0;font-size:13px" class="' + (isReg ? 'ghost' : '') + '" onclick="authView(' + (setup?1:0) + ',\'login\')">Sign In</button>' +
+      '<button type="button" style="flex:1;padding:8px 0;font-size:13px" class="' + (isReg ? '' : 'ghost') + '" onclick="authView(' + (setup?1:0) + ',\'register\')">Register New Pump</button>' +
+    '</div>';
+
+  if (!isReg) {
+    h += '<button type="button" style="width:100%;margin:4px 0 16px;background:#4285F4;color:#fff;display:flex;align-items:center;justify-content:center;gap:10px;font-weight:600;padding:11px 16px;border:none;border-radius:var(--radius);cursor:pointer;font-size:14px;box-shadow:0 1px 3px rgba(0,0,0,0.15)" onclick="doGoogleAuth()">' +
+      '<svg width="18" height="18" viewBox="0 0 24 24"><path fill="#ffffff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#ffffff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#ffffff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#ffffff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>' +
+      '<span>Sign in with Google</span>' +
+    '</button>' +
+    '<div style="display:flex;align-items:center;text-align:center;color:var(--mute);font-size:12px;margin:8px 0 16px"><span style="flex:1;height:1px;background:var(--line)"></span><span style="padding:0 8px">OR MOBILE NUMBER</span><span style="flex:1;height:1px;background:var(--line)"></span></div>' +
+    '<label>Mobile number<input id="a1" inputmode="tel" autocomplete="username"></label>' +
+    '<label>Password<input id="a2" type="password" autocomplete="current-password"></label>' +
+    '<div class="err" id="er"></div>' +
+    '<button style="width:100%;margin-top:6px" onclick="doAuth(false)">Log in to Station</button>' +
+    '<div style="text-align:center;margin-top:14px;font-size:12px"><a href="javascript:void(0)" onclick="authView(' + (setup?1:0) + ',\'register\')" style="color:var(--theme-accent);text-decoration:none;font-weight:600">New station customer? Register your petrol pump &rarr;</a></div>';
+  } else {
+    h += '<div class="sub" style="margin-bottom:12px;background:var(--theme-accent-soft);padding:8px 10px;border-radius:6px;color:var(--ink);font-size:12px">Each registered petrol pump gets an isolated dataset for nozzle readings, tank dips, credit ledgers, and staff logins.</div>' +
+    '<label>Petrol Pump / Station Name<input id="a_pump_name" placeholder="e.g. Apex Highway Fuel Station"></label>' +
+    '<label>Station Code (optional, e.g. APEX-01)<input id="a_pump_code" placeholder="Leave blank to auto-generate"></label>' +
+    '<label>Owner Full Name<input id="a0" placeholder="e.g. Rahul Sharma"></label>' +
+    '<label>Mobile number<input id="a1" inputmode="tel" autocomplete="username"></label>' +
+    '<label>Owner Password (6+ characters)<input id="a2" type="password" autocomplete="new-password"></label>' +
+    '<div class="err" id="er"></div>' +
+    '<button style="width:100%;margin-top:6px" onclick="doAuth(true)">Register &amp; Launch Station</button>' +
+    '<div style="text-align:center;margin-top:14px;font-size:12px"><a href="javascript:void(0)" onclick="authView(' + (setup?1:0) + ',\'login\')" style="color:var(--theme-accent);text-decoration:none;font-weight:600">Already have an account? Sign in &rarr;</a></div>';
+  }
+
+  document.getElementById("app").innerHTML = h;
+  var pEl = document.getElementById("a2");
+  if (pEl) pEl.onkeydown = function(e) { if (e.key === "Enter") doAuth(isReg); };
+}
+function doAuth(isRegister){
+  var b = { mobile: v("a1"), password: document.getElementById("a2").value };
+  if (isRegister) {
+    b.name = v("a0");
+    b.pump_name = v("a_pump_name");
+    b.pump_code = v("a_pump_code");
+    api("POST", "/api/signup", b).then(function(r){
+      if(r.token){ AUTH_TOKEN=r.token; try{ localStorage.setItem("petrol_auth_token", r.token); }catch(e){} }
+      ME=r.user; start();
+    }).catch(function(e){ er(e.error || "Could not register station. Check details."); });
+  } else {
+    api("POST", "/api/login", b).then(function(r){
+      if(r.token){ AUTH_TOKEN=r.token; try{ localStorage.setItem("petrol_auth_token", r.token); }catch(e){} }
+      ME=r.user; start();
+    }).catch(function(e){ er(e.error || "Could not log in. Check your credentials."); });
+  }
+}
+function stationSwitcherModal() {
+  openM('<h2>Petrol Pump Stations</h2><div class="sub">Switch between your stations or create an additional station. All business data is strictly isolated.</div><div id="pump-modal-list" style="margin:12px 0"><div class="empty">Loading stations\u2026</div></div><div class="btns" style="margin-top:12px"><button onclick="newStationModal()">+ Add New Station</button><button class="ghost" onclick="close()">Close</button></div>');
+  api("GET", "/api/pumps").then(function(list) {
+    var el = document.getElementById("pump-modal-list");
+    if (!el) return;
+    if (!list || !list.length) { el.innerHTML = '<div class="empty">No stations found.</div>'; return; }
+    var h = '';
+    list.forEach(function(p) {
+      var isCur = (ME && ME.pump_id == p.id);
+      h += '<div class="cust" style="cursor:default;margin-bottom:8px;border:1px solid ' + (isCur ? 'var(--theme-accent)' : 'var(--line)') + ';background:' + (isCur ? 'var(--theme-accent-soft)' : 'var(--surface)') + '">' +
+        '<div class="row"><b>' + esc(p.name) + '</b><span class="sub" style="font-weight:700;color:var(--theme-accent)">' + esc(p.code) + '</span></div>' +
+        '<div class="sub" style="margin-top:2px">Station #' + p.id + (isCur ? ' &bull; <b style="color:var(--theme-accent)">Active Station</b>' : '') + '</div>' +
+        (isCur ? '' : '<div class="btns" style="margin-top:8px"><button style="padding:6px 12px;font-size:12px" onclick="switchStation(' + p.id + ')">Switch to this station</button></div>') +
+      '</div>';
+    });
+    el.innerHTML = h;
+  }).catch(function(e) {
+    var el = document.getElementById("pump-modal-list");
+    if (el) el.innerHTML = '<div class="err">' + esc(e.error || "Could not load stations") + '</div>';
+  });
+}
+function switchStation(id) {
+  api("POST", "/api/pumps/switch", { pump_id: id }).then(function(r) {
+    ME = r.user;
+    close();
+    badge("Switched to " + ME.pump_name);
+    start();
+  }).catch(function(e) {
+    er(e.error || "Could not switch station");
+  });
+}
+function newStationModal() {
+  openM('<h2>Add New Petrol Pump Station</h2><div class="sub">Creates a new isolated station tenant under your owner account.</div>' +
+    '<label>Station Name<input id="np_name" placeholder="e.g. City Highway Express"></label>' +
+    '<label>Station Code (optional, e.g. PUMP-02)<input id="np_code" placeholder="Leave empty to auto-generate"></label>' +
+    '<div class="err" id="er"></div>' +
+    '<div class="row" style="margin-top:12px">' +
+      '<button class="ghost" onclick="stationSwitcherModal()">Back</button>' +
+      '<button onclick="saveNewStation()">Create Station</button>' +
+    '</div>');
+}
+function saveNewStation() {
+  var nm = v("np_name"), cd = v("np_code");
+  if (!nm) return er("Enter station name.");
+  api("POST", "/api/pumps", { name: nm, code: cd }).then(function(r) {
+    ask("Station created! Switch to " + r.name + " now?", function() {
+      switchStation(r.id);
+    });
+  }).catch(function(e) {
+    er(e.error || "Could not create station.");
+  });
+}
+function saveStationInfo(){
+  var nm = v("st_name"), cd = v("st_code");
+  if(!nm) return er("Enter station name.");
+  api("PATCH", "/api/pump", { name: nm, code: cd }).then(function(p){
+    ME.pump_name = p.name;
+    ME.pump_code = p.code;
+    badge("Station info saved!");
+    renderSidebar();
+    renderSetup();
+  }).catch(function(e){
+    er(e.error || "Could not save station info.");
+  });
+}
+function loadSetupPumps(){
+  api("GET", "/api/pumps").then(function(list){
+    var el = document.getElementById("setup-pump-list");
+    if(!el) return;
+    if(!list || !list.length){ el.innerHTML = '<div class="empty">No stations found.</div>'; return; }
+    var h = '';
+    list.forEach(function(p){
+      var isCur = (ME && ME.pump_id == p.id);
+      h += '<div class="cust" style="cursor:default;margin-bottom:8px;border:1px solid '+(isCur?'var(--theme-accent)':'var(--line)')+';background:'+(isCur?'var(--theme-accent-soft)':'var(--card)')+'">'+
+        '<div class="row"><b>'+esc(p.name)+'</b><span class="sub" style="font-weight:700;color:var(--theme-accent)">'+esc(p.code)+'</span></div>'+
+        '<div class="sub">Station #'+p.id+(isCur?' &bull; <b style="color:var(--theme-accent)">Current Active Station</b>':'')+'</div>'+
+        (isCur?'':'<div class="btns" style="margin-top:8px"><button class="ghost" style="padding:6px 10px;font-size:12px" onclick="switchStation('+p.id+')">Switch to this station</button></div>')+
+      '</div>';
+    });
+    el.innerHTML = h;
+  }).catch(function(){});
+}
+function logout(){try{localStorage.removeItem("petrol_auth_token")}catch(e){}AUTH_TOKEN="";if(fbAuth){try{fbAuth.signOut()}catch(e){}}api("POST","/api/logout").then(function(){location.reload()}).catch(function(){location.reload()})}
 function pwForm(){openM('<h2>Change password</h2><label>Current password<input id="p1" type="password"></label><label>New password (6+ characters)<input id="p2" type="password"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="savePw()">Change password</button></div>')}
 function savePw(){api("POST","/api/password",{old:document.getElementById("p1").value,password:document.getElementById("p2").value}).then(function(){openM('<h2>Password changed</h2><div class="btns"><button onclick="close()">Close</button></div>')}).catch(function(e){er(e.error||"Could not change the password.")})}
 function loadCredit(){Promise.all([api("GET","/api/customers"),api("GET","/api/my-credit-sales"),api("GET","/api/fuels")]).then(function(r){CL=r[0];MY=r[1];CF=r[2];renderCredit()}).catch(function(e){document.getElementById("app").innerHTML=ubar()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>'})}
@@ -2125,7 +2518,13 @@ if(!b.cust_id)return er("Choose a customer.");if(fu&&!(lt>0))return er("Enter th
 var c=CL.filter(function(x){return x.id==b.cust_id})[0],go=function(){api("POST","/api/credit-sales",b).then(function(){loadCredit()}).catch(function(e){er(e.error||"Could not save. Check your connection.")})};
 if(c&&a>c.available)return ask("This is more than the customer's available credit ("+inr(c.available)+"). It will be sent to a manager for approval. Continue?",go);go()}
 function renderTeam(){document.getElementById("app").innerHTML=nav()+'<div class="empty">Loading team\u2026</div>';
-api("GET","/api/users").then(function(U){if(tab!="team")return;var h=nav()+'<h1>Team logins</h1><div class="btns"><button onclick="userForm()">Add user</button></div>';
+api("GET","/api/users").then(function(U){if(tab!="team")return;
+var h=nav()+'<h1>Team logins</h1>'+
+  '<div class="cust" style="cursor:default;margin-bottom:12px;background:var(--theme-accent-soft);border:1px solid var(--theme-accent);padding:10px 14px">'+
+    '<div class="row"><b>Station: '+esc(ME.pump_name || "Petrol Pump")+'</b><span style="font-weight:700;color:var(--theme-accent)">'+esc(ME.pump_code || "")+'</span></div>'+
+    '<div class="sub" style="margin-top:2px">Staff and managers are isolated to this petrol pump station.</div>'+
+  '</div>'+
+  '<div class="btns"><button onclick="userForm()">Add user</button></div>';
 U.forEach(function(u){h+='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(u.name)+'</b><span class="sub" style="flex:none;text-align:right">'+u.role+(u.active?'':' \u00b7 inactive')+'</span></div><div class="sub">Mobile '+esc(u.mobile)+'</div>'+(u.role=="owner"?'':'<div class="btns" style="margin:10px 0 0"><button class="ghost" onclick="userAct('+u.id+',\''+(u.active?'off':'on')+'\')">'+(u.active?'Deactivate':'Activate')+'</button><button class="ghost" onclick="resetPw('+u.id+')">Reset password</button></div>')+'</div>'});
 document.getElementById("app").innerHTML=h}).catch(function(e){badge(e.error||"Could not load the team.")})}
 function userForm(){openM('<h2>Add user</h2><label>Name<input id="u1"></label><label>Mobile number (used to log in)<input id="u2" inputmode="tel"></label><label>Role<select id="u3"><option value="worker">Worker</option>'+(ME.role=="owner"?'<option value="manager">Manager</option>':'')+'</select></label><label>Password (6+ characters)<input id="u4" autocomplete="off"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveUser()">Save user</button></div>')}
