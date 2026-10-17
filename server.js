@@ -99,6 +99,17 @@ async function initDb() {
     notes text,
     primary key(pump_id, d)
   );
+  create table if not exists meter_readings(
+    id integer primary key autoincrement,
+    pump_id integer not null default 1,
+    d text not null,
+    nozzle_id text not null,
+    closing real not null,
+    testing real not null default 0,
+    user_id integer,
+    updated_at integer not null,
+    unique(pump_id, d, nozzle_id)
+  );
   `);
 
   const addCol = (t, c, def) => {
@@ -127,6 +138,7 @@ async function initDb() {
   addCol("density_register", "pump_id", "integer not null default 1");
   addCol("bank_deposits", "pump_id", "integer not null default 1");
   addCol("cash_flow_days", "pump_id", "integer not null default 1");
+  addCol("meter_readings", "pump_id", "integer not null default 1");
 
   // Migrate composite PK tables in SQLite if they lacked pump_id in PK
   try {
@@ -1468,7 +1480,7 @@ function tankChecks(pumpId = 1) {
 
   const getSales = (tid, a, b) => {
     let gross = 0, testing = 0;
-    sales.filter((x) => tankOf[x.n] === tid && x.t > a && x.t <= b).forEach((x) => {
+    sales.filter((x) => tankOf[x.n] === tid && x.t >= a && (b ? x.t < b : true)).forEach((x) => {
       gross += x.gross;
       testing += x.testing;
     });
@@ -1478,20 +1490,29 @@ function tankChecks(pumpId = 1) {
     return { gross, testing, net };
   };
 
-  const recv = (tid, a, b) => r2(dv.reduce((s, d) => s + (Math.floor(d.ts / 1000) > a && Math.floor(d.ts / 1000) <= b ? (d.lines || []).filter((l) => String(l.tank_id) === tid).reduce((q, l) => q + (+l.litres || 0), 0) : 0), 0));
+  const recv = (tid, a, b) => r2(dv.reduce((s, d) => {
+    const dTs = Math.floor(d.ts / 1000);
+    const match = dTs >= a && (b ? dTs < b : true);
+    return s + (match ? (d.lines || []).filter((l) => String(l.tank_id) === tid).reduce((q, l) => q + (+l.litres || 0), 0) : 0);
+  }, 0));
 
   return tanks.map((tk) => {
     const tid = String(tk.id), ds = dips.filter((x) => x.tank_id === tid), checks = [];
     let cumSales = 0, cumVar = 0, currentMonth = null;
-    for (let i = 1; i < ds.length; i++) {
-      const p = ds[i - 1], c = ds[i];
-      const sm = getSales(tid, p.t, c.t);
-      const re = recv(tid, p.t, c.t);
+    for (let i = 0; i < ds.length; i++) {
+      const p = ds[i];
+      const c = ds[i + 1] || null;
+      // Dip reading p is the Opening Stock for its respective business date
+      const dDate = new Date(p.t * 1000 - 6 * 3600e3).toLocaleDateString("en-CA", { timeZone: TZ });
+      const toTime = c ? c.t : null;
+      const sm = getSales(tid, p.t, toTime);
+      const re = recv(tid, p.t, toTime);
       const totStock = r2(p.litres + re);
-      const sales_by_dip = r2(totStock - c.litres);
-      const diff = r2(sm.net - sales_by_dip);
+      const sales_by_dip = c ? r2(totStock - c.litres) : null;
+      const diff = sales_by_dip != null ? r2(sm.net - sales_by_dip) : null;
       const exp = r2(totStock - sm.net);
-      const dDate = new Date((c.t ? c.t * 1000 : Date.now()) - 6 * 3600e3).toLocaleDateString("en-CA", { timeZone: TZ });
+      const variance = c ? r2(c.litres - exp) : null;
+
       const monthKey = dDate.slice(0, 7);
       if (currentMonth !== monthKey) {
         currentMonth = monthKey;
@@ -1499,13 +1520,15 @@ function tankChecks(pumpId = 1) {
         cumVar = 0;
       }
       cumSales = r2(cumSales + sm.net);
-      cumVar = r2(cumVar + diff);
+      if (diff != null) {
+        cumVar = r2(cumVar + diff);
+      }
       const fRate = fuelRateFor(st, tk.fuel, dDate) ?? fuelRateFor(st, tk.fuel, bizDate());
       checks.push({
-        id: c.id,
+        id: p.id,
         d: dDate,
         from: p.t,
-        to: c.t,
+        to: c ? c.t : null,
         rate: fRate,
         opening: p.litres,
         opening_dip: p.dip,
@@ -1516,20 +1539,21 @@ function tankChecks(pumpId = 1) {
         net_meter_sales: sm.net,
         cumulative_sales: cumSales,
         sold: sm.net,
-        actual: c.litres,
-        closing_dip: c.dip,
+        actual: c ? c.litres : null,
+        closing_dip: c ? c.dip : null,
         sales_by_dip: sales_by_dip,
         diff: diff,
-        cumulative_variation: cumVar,
+        cumulative_variation: diff != null ? cumVar : null,
         expected: exp,
-        variance: r2(c.litres - exp),
-        note: c.note || "",
-        by: c.by_name
+        variance: variance,
+        note: p.note || "",
+        by: p.by_name,
+        is_latest: !c
       });
     }
     const last = ds[ds.length - 1] || null;
-    const sinceSales = last ? getSales(tid, last.t, now()) : { net: 0 };
-    const book = last ? r2(last.litres + recv(tid, last.t, now()) - sinceSales.net) : null;
+    const sinceSales = last ? getSales(tid, last.t, null) : { net: 0 };
+    const book = last ? r2(last.litres + recv(tid, last.t, null) - sinceSales.net) : null;
     return {
       id: tk.id,
       name: tk.name,
@@ -1551,7 +1575,64 @@ app.get("/api/tanks", need(), (q, s) => {
 });
 app.post("/api/dips", need(), (q, s) => {
   const pid = q.user.pump_id;
-  const b = q.body || {}, tank = (stateNow(pid).tanks || []).find((t) => String(t.id) === String(b.tank_id));
+  const b = q.body || {};
+  const st = stateNow(pid);
+  const allTanks = st.tanks || [];
+
+  // Batch insertion for all tanks at once
+  if (Array.isArray(b.readings)) {
+    if (!b.readings.length) return s.status(400).json({ error: "No tank readings provided." });
+
+    let ts = now();
+    if (b.date) {
+      let timeStr = b.time || "08:00:00";
+      if (timeStr.length === 5) timeStr += ":00";
+      const parsed = Math.floor(new Date(`${b.date}T${timeStr}+05:30`).getTime() / 1000);
+      if (!isNaN(parsed) && parsed > 0) ts = parsed;
+    }
+    const note = String(b.note || "").slice(0, 200);
+
+    const inserted = [];
+    try {
+      const tx = db.transaction(() => {
+        for (const item of b.readings) {
+          const tank = allTanks.find((t) => String(t.id) === String(item.tank_id));
+          if (!tank) continue;
+
+          let litres = num(item.litres);
+          const dip = item.dip === "" || item.dip == null ? null : num(item.dip);
+
+          if (Number.isNaN(litres)) {
+            if (dip === null || Number.isNaN(dip)) continue;
+            const r = fromChart(tank.chart, dip);
+            if (r.err) throw new Error(r.err + ` for ${tank.name}`);
+            litres = r.l;
+          }
+
+          if (tank.capacity && litres > tank.capacity * 1.05) {
+            throw new Error(`${tank.name}: Litres (${litres} L) exceed tank capacity (${tank.capacity} L).`);
+          }
+
+          const id = db.prepare(
+            "insert into dips(pump_id,tank_id,litres,dip,dens_obs,temp,d15,note,user_id,t) values(?,?,?,?,?,?,?,?,?,?)"
+          ).run(pid, String(tank.id), r2(litres), dip, null, null, null, note, q.user.id, ts).lastInsertRowid;
+
+          inserted.push({ id, tank_id: tank.id, litres: r2(litres) });
+        }
+      });
+      tx();
+    } catch (err) {
+      return s.status(400).json({ error: err.message || "Could not save dip readings." });
+    }
+
+    if (!inserted.length) return s.status(400).json({ error: "Please enter a dip reading or litres for at least one tank." });
+
+    audit(pid, q.user, "add_dips_batch", `Recorded dips for ${inserted.length} tanks`);
+    return s.json({ ok: true, count: inserted.length, dips: inserted });
+  }
+
+  // Single tank backward compatibility
+  const tank = allTanks.find((t) => String(t.id) === String(b.tank_id));
   if (!tank) return s.status(400).json({ error: "Choose a tank." });
   let litres = num(b.litres);
   const dip = b.dip === "" || b.dip == null ? null : num(b.dip);
@@ -1561,18 +1642,17 @@ app.post("/api/dips", need(), (q, s) => {
     if (r.err) return s.status(400).json({ error: r.err });
     litres = r.l;
   }
-  if (tank.capacity && litres > tank.capacity * 1.02) return s.status(400).json({ error: `That is more than the tank capacity (${tank.capacity} L). Check the reading.` });
-  const opt = (x, lo, hi) => {
-    if (x === "" || x == null) return null;
-    const n = +x;
-    if (!Number.isFinite(n)) return NaN;
-    if ((n >= lo && n <= hi) || (n >= lo * 1000 && n <= hi * 1000)) return n;
-    return NaN;
-  };
-  const dobs = opt(b.dens_obs, 0.5, 1.2), d15 = opt(b.d15, 0.5, 1.2), tmp = opt(b.temp, -10, 90);
-  if ([dobs, d15].some(Number.isNaN)) return s.status(400).json({ error: "Density should be a number such as 732.0 or 0.745." });
-  if (Number.isNaN(tmp)) return s.status(400).json({ error: "Check the temperature." });
-  const id = db.prepare("insert into dips(pump_id,tank_id,litres,dip,dens_obs,temp,d15,note,user_id,t) values(?,?,?,?,?,?,?,?,?,?)").run(pid, String(tank.id), r2(litres), dip, dobs, tmp, d15, String(b.note || "").slice(0, 200), q.user.id, now()).lastInsertRowid;
+  if (tank.capacity && litres > tank.capacity * 1.05) return s.status(400).json({ error: `That is more than the tank capacity (${tank.capacity} L). Check the reading.` });
+
+  let ts = now();
+  if (b.date) {
+    let timeStr = b.time || "08:00:00";
+    if (timeStr.length === 5) timeStr += ":00";
+    const parsed = Math.floor(new Date(`${b.date}T${timeStr}+05:30`).getTime() / 1000);
+    if (!isNaN(parsed) && parsed > 0) ts = parsed;
+  }
+
+  const id = db.prepare("insert into dips(pump_id,tank_id,litres,dip,dens_obs,temp,d15,note,user_id,t) values(?,?,?,?,?,?,?,?,?,?)").run(pid, String(tank.id), r2(litres), dip, null, null, null, String(b.note || "").slice(0, 200), q.user.id, ts).lastInsertRowid;
   s.json({ id, litres: r2(litres) });
 });
 // ---- Density checks (deliveries and dips) with flags
@@ -1822,6 +1902,158 @@ app.delete("/api/density-register/:id", need("owner", "manager"), (q, s) => {
   s.json({ ok: true });
 });
 
+// ---- Daily Meter Register API (Statutory Pump Meter Sheet)
+app.get("/api/meters", need(), (q, s) => {
+  const pid = q.user.pump_id || 1;
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(q.query.month || "") ? q.query.month : null;
+  const st = stateNow(pid);
+  const nozzles = st.nozzles || [];
+
+  let rows;
+  if (month) {
+    rows = db.prepare("select * from meter_readings where pump_id=? and d like ? order by d asc, id asc").all(pid, month + "%");
+  } else {
+    rows = db.prepare("select * from meter_readings where pump_id=? order by d asc, id asc").all(pid);
+  }
+
+  // Pre-calculate the latest closing reading immediately prior to the requested month (or today) for each nozzle
+  const firstDate = month ? month + "-01" : today();
+  const priorClosings = {};
+  for (const n of nozzles) {
+    const nid = String(n.id);
+    const prior = db.prepare(`
+      select closing from meter_readings
+      where pump_id=? and nozzle_id=? and d < ?
+      order by d desc, id desc limit 1
+    `).get(pid, nid, firstDate);
+
+    if (prior && prior.closing != null) {
+      priorClosings[nid] = prior.closing;
+    } else {
+      const dutyPrior = db.prepare(`
+        select dl.closing from duty_lines dl
+        join duties d on d.id=dl.duty_id
+        where d.pump_id=? and dl.nozzle_id=? and d.d < ? and dl.closing is not null
+        order by d.d desc, d.id desc limit 1
+      `).get(pid, nid, firstDate);
+      if (dutyPrior && dutyPrior.closing != null) {
+        priorClosings[nid] = dutyPrior.closing;
+      } else if (n.open != null && !isNaN(+n.open)) {
+        priorClosings[nid] = +n.open;
+      }
+    }
+  }
+
+  s.json({ rows, prior: priorClosings });
+});
+
+app.get("/api/meters/prev", need(), (q, s) => {
+  const pid = q.user.pump_id || 1;
+  const targetDate = String(q.query.date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return s.status(400).json({ error: "Valid date required." });
+
+  const st = stateNow(pid);
+  const nozzles = st.nozzles || [];
+  const res = {};
+
+  for (const n of nozzles) {
+    const nid = String(n.id);
+    // 1. Check existing reading for this exact date first (if editing)
+    const current = db.prepare(`
+      select closing, testing from meter_readings
+      where pump_id=? and nozzle_id=? and d=?
+    `).get(pid, nid, targetDate);
+
+    // 2. Check latest reading strictly before targetDate
+    const prior = db.prepare(`
+      select closing, d from meter_readings
+      where pump_id=? and nozzle_id=? and d < ?
+      order by d desc, id desc limit 1
+    `).get(pid, nid, targetDate);
+
+    let prevClose = null;
+    let prevDate = null;
+    let source = "none";
+
+    if (prior && prior.closing != null) {
+      prevClose = prior.closing;
+      prevDate = prior.d;
+      source = "meter_register";
+    } else {
+      // Check duty_lines
+      const dutyPrior = db.prepare(`
+        select dl.closing, d.d from duty_lines dl
+        join duties d on d.id=dl.duty_id
+        where d.pump_id=? and dl.nozzle_id=? and d.d < ? and dl.closing is not null
+        order by d.d desc, d.id desc limit 1
+      `).get(pid, nid, targetDate);
+      if (dutyPrior && dutyPrior.closing != null) {
+        prevClose = dutyPrior.closing;
+        prevDate = dutyPrior.d;
+        source = "shift_duty";
+      } else if (n.open != null && !isNaN(+n.open)) {
+        prevClose = +n.open;
+        source = "initial_setup";
+      }
+    }
+
+    res[nid] = {
+      prev_closing: prevClose,
+      prev_date: prevDate,
+      source: source,
+      current_closing: current ? current.closing : null,
+      current_testing: current ? current.testing : 0
+    };
+  }
+  s.json(res);
+});
+
+app.post("/api/meters", need("owner", "manager", "worker"), (q, s) => {
+  const pid = q.user.pump_id || 1;
+  const b = q.body || {};
+  const d = String(b.date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return s.status(400).json({ error: "Valid date YYYY-MM-DD is required." });
+  const readings = Array.isArray(b.readings) ? b.readings : [];
+  if (!readings.length) return s.status(400).json({ error: "No meter readings provided." });
+
+  const nowTs = Math.floor(Date.now() / 1000);
+  const ins = db.prepare(`
+    insert into meter_readings(pump_id, d, nozzle_id, closing, testing, user_id, updated_at)
+    values(?, ?, ?, ?, ?, ?, ?)
+    on conflict(pump_id, d, nozzle_id) do update set
+      closing=excluded.closing,
+      testing=excluded.testing,
+      user_id=excluded.user_id,
+      updated_at=excluded.updated_at
+  `);
+
+  let count = 0;
+  const tx = db.transaction(() => {
+    for (const r of readings) {
+      const nid = String(r.nozzle_id || "");
+      if (!nid) continue;
+      const closing = parseFloat(r.closing);
+      const testing = parseFloat(r.testing) || 0;
+      if (isNaN(closing) || closing < 0) continue;
+      ins.run(pid, d, nid, closing, testing, q.user.id, nowTs);
+      count++;
+    }
+  });
+  tx();
+
+  audit(pid, q.user, "save_meter_readings", `Date: ${d}, ${count} nozzles`);
+  s.json({ ok: true, count, date: d });
+});
+
+app.delete("/api/meters/:date", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id || 1;
+  const d = String(q.params.date || "").trim();
+  if (!d) return s.status(400).json({ error: "Date required" });
+  db.prepare("delete from meter_readings where pump_id=? and d=?").run(pid, d);
+  audit(pid, q.user, "delete_meter_readings", `Date: ${d}`);
+  s.json({ ok: true, date: d });
+});
+
 // ---- Worker pay (owner manages; each worker can see their own)
 const SHIFTS = ["Morning", "Evening", "Night"];
 const monthOf = (m) => (/^\d{4}-(0[1-9]|1[0-2])$/.test(m || "") ? m : today().slice(0, 7));
@@ -1978,7 +2210,7 @@ app.get("/api/backups/:name", need("owner"), (q, s) => {
   s.download(path.join(BACKUP_DIR, q.params.name));
 });
 // Restore copies every table from the chosen backup over the live data. A safety copy is taken first.
-const RESTORE_TABLES = ["pumps", "users", "sections", "state", "audit", "credit_sales", "duties", "duty_lines", "duty_items", "duty_expenses", "days", "dips", "pay_rates", "pay_items", "density_register"];
+const RESTORE_TABLES = ["pumps", "users", "sections", "state", "audit", "credit_sales", "duties", "duty_lines", "duty_items", "duty_expenses", "days", "dips", "pay_rates", "pay_items", "density_register", "bank_deposits", "cash_flow_days", "meter_readings"];
 app.post("/api/backups/restore", need("owner"), async (q, s) => {
   const name = q.body && q.body.name;
   if (!BK_NAME.test(String(name)) || !fs.existsSync(path.join(BACKUP_DIR, name))) return s.status(404).json({ error: "Backup not found." });

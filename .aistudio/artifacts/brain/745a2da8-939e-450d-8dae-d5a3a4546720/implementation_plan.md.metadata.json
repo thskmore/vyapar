@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan to upgrade the Dip Reading form to support multi-tank simultaneous entry in a clean card layout, remove density fields, and provide real-time dip chart auto-calculation.",
+  "updatedAt": "2026-10-17T15:22:18.430412407Z",
+  "requestFeedback": true,
+  "userFacing": true
+}
