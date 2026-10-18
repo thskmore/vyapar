@@ -30,7 +30,7 @@ async function initDb() {
   create table if not exists credit_sales(
     id integer primary key, pump_id integer not null default 1, cust_id text not null, d text not null, n text not null,
     a real not null, veh text, worker_id integer not null, created integer not null,
-    status text not null default 'ok', fuel text, litres real);
+    status text not null default 'ok', fuel text, litres real, duty_id integer);
   create table if not exists sections(pump_id integer not null default 1, name text not null, ver integer not null, json text not null, primary key(pump_id, name));
   create table if not exists audit(id integer primary key, pump_id integer not null default 1, t integer not null, user_id integer, user_name text, action text not null, detail text);
   create table if not exists duties(
@@ -125,6 +125,7 @@ async function initDb() {
   addCol("credit_sales", "status", "text not null default 'ok'");
   addCol("credit_sales", "fuel", "text");
   addCol("credit_sales", "litres", "real");
+  addCol("credit_sales", "duty_id", "integer");
   addCol("audit", "pump_id", "integer not null default 1");
   addCol("duties", "pump_id", "integer not null default 1");
   addCol("duties", "pay_json", "text");
@@ -783,7 +784,7 @@ app.get("/api/fuels", need(), (q, s) => { const st = stateNow(q.user.pump_id); s
 app.get("/api/customers", need(), (q, s) => s.json(customers(q.user.pump_id).filter((c) => c.active)));
 app.post("/api/credit-sales", need(), (q, s) => {
   const pid = q.user.pump_id;
-  const { cust_id, n, a, veh, force, fuel, litres } = q.body || {};
+  const { cust_id, n, a, veh, force, fuel, litres, duty_id } = q.body || {};
   const c = customers(pid).find((x) => String(x.id) === String(cust_id));
   const fu = String(fuel || "").trim().slice(0, 30), lt = fu && litres !== "" && litres != null ? Math.round(+litres * 100) / 100 : null;
   const amt = Math.round(+a * 100) / 100, item = String(n || "").trim() || (fu && lt > 0 ? `${fu} ${lt} L` : "");
@@ -796,19 +797,24 @@ app.post("/api/credit-sales", need(), (q, s) => {
   // Workers cannot exceed a customer's limit: the sale waits for a manager or owner to approve it.
   if (over && !worker && !force) return s.status(409).json({ error: "over_limit", available: c.available });
   const status = over && worker ? "pending" : "ok";
-  const id = db.prepare("insert into credit_sales(pump_id,cust_id,d,n,a,veh,worker_id,created,status,fuel,litres) values(?,?,?,?,?,?,?,?,?,?,?)")
-    .run(pid, String(c.id), bizDate(), item, amt, String(veh || "").trim().toUpperCase().slice(0, 20), q.user.id, now(), status, fu || null, lt).lastInsertRowid;
-  s.json({ id, pending: status === "pending", available: Math.round((status === "ok" ? c.available - amt : c.available) * 100) / 100 });
+  let dutyId = duty_id ? +duty_id : null;
+  if (!dutyId && q.user) {
+    const od = openDuty(q.user.id, pid);
+    if (od) dutyId = od.id;
+  }
+  const id = db.prepare("insert into credit_sales(pump_id,cust_id,d,n,a,veh,worker_id,created,status,fuel,litres,duty_id) values(?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(pid, String(c.id), bizDate(), item, amt, String(veh || "").trim().toUpperCase().slice(0, 20), q.user.id, now(), status, fu || null, lt, dutyId).lastInsertRowid;
+  s.json({ id, duty_id: dutyId, pending: status === "pending", available: Math.round((status === "ok" ? c.available - amt : c.available) * 100) / 100 });
 });
 app.get("/api/credit-sales", need("owner", "manager"), (q, s) => {
   const pid = q.user.pump_id;
-  s.json(db.prepare("select cs.id,cs.cust_id,cs.d,cs.n,cs.a,cs.veh,cs.fuel,cs.litres,cs.status,u.name worker from credit_sales cs join users u on u.id=cs.worker_id where cs.pump_id=? and cs.status<>'rejected' order by cs.id").all(pid));
+  s.json(db.prepare("select cs.id,cs.cust_id,cs.d,cs.n,cs.a,cs.veh,cs.fuel,cs.litres,cs.status,cs.duty_id,u.name worker from credit_sales cs join users u on u.id=cs.worker_id where cs.pump_id=? and cs.status<>'rejected' order by cs.id").all(pid));
 });
 app.get("/api/my-credit-sales", need(), (q, s) => {
   const pid = q.user.pump_id;
   const names = {};
   customers(pid).forEach((c) => (names[String(c.id)] = c.name));
-  const rows = db.prepare("select id,cust_id,d,n,a,veh,fuel,litres,status from credit_sales where pump_id=? and worker_id=? order by id desc limit 50").all(pid, q.user.id);
+  const rows = db.prepare("select id,cust_id,d,n,a,veh,fuel,litres,status,duty_id,created from credit_sales where pump_id=? and worker_id=? order by id desc limit 50").all(pid, q.user.id);
   s.json(rows.map((r) => ({ ...r, cname: names[r.cust_id] || "Customer" })));
 });
 const decide = (to) => (q, s) => {
@@ -818,8 +824,18 @@ const decide = (to) => (q, s) => {
 };
 app.post("/api/credit-sales/:id/approve", need("owner", "manager"), decide("ok"));
 app.post("/api/credit-sales/:id/reject", need("owner", "manager"), decide("rejected"));
-app.delete("/api/credit-sales/:id", need("owner", "manager"), (q, s) => {
-  db.prepare("delete from credit_sales where id=? and pump_id=?").run(+q.params.id, q.user.pump_id);
+app.delete("/api/credit-sales/:id", need(), (q, s) => {
+  const pid = q.user.pump_id;
+  const cs = db.prepare("select * from credit_sales where id=? and pump_id=?").get(+q.params.id, pid);
+  if (!cs) return s.status(404).json({ error: "Credit sale not found." });
+  if (q.user.role === "worker") {
+    if (cs.worker_id !== q.user.id) return s.status(403).json({ error: "You can only delete your own credit sales." });
+    if (cs.duty_id) {
+      const d = db.prepare("select status from duties where id=? and pump_id=?").get(cs.duty_id, pid);
+      if (d && d.status !== "open") return s.status(403).json({ error: "Cannot delete credit sale from a submitted or closed duty." });
+    }
+  }
+  db.prepare("delete from credit_sales where id=? and pump_id=?").run(+q.params.id, pid);
   s.json({ ok: true });
 });
 
@@ -864,22 +880,29 @@ function detail(d, pumpId) {
   const pid = pumpId || d.pump_id || 1;
   const st = stateNow(pid), nm = nozzleMap(st);
   const lines = db.prepare("select * from duty_lines where duty_id=? order by id").all(d.id).map((l) => {
-    const lt = l.closing == null ? 0 : r2(l.closing - l.opening - l.testing), n = nm[l.nozzle_id] || {};
+    const isUnentered = (l.closing == null || l.closing === "");
+    const lt = isUnentered ? 0 : r2(Math.max(0, +l.closing - +l.opening - (+l.testing || 0)));
+    const n = nm[l.nozzle_id] || {};
     return { ...l, nozzle: n.name || "Nozzle", fuel: n.fuel || "", unit: unitOf(st, n.fuel), litres: lt, amount: r2(lt * (l.rate || 0)) };
   });
   const items = db.prepare("select * from duty_items where duty_id=? order by id").all(d.id).map((i) => ({ ...i, amount: r2(i.qty * i.price) }));
   const expenses = db.prepare("select * from duty_expenses where duty_id=? order by id").all(d.id);
+  const creditSales = db.prepare("select cs.id, cs.cust_id, cs.d, cs.n, cs.a, cs.veh, cs.fuel, cs.litres, cs.status, cs.created from credit_sales cs where cs.pump_id=? and (cs.duty_id=? or (cs.duty_id is null and cs.worker_id=? and cs.created>=? and cs.created<=?)) order by cs.id").all(pid, d.id, d.worker_id, d.started, d.submitted || now());
+  const custNames = {};
+  customers(pid).forEach((c) => (custNames[String(c.id)] = c.name));
+  const credits = creditSales.map((cs) => ({ ...cs, cname: custNames[cs.cust_id] || "Customer", amount: cs.a }));
   const sales = r2(lines.reduce((a, l) => a + l.amount, 0)), litres = r2(lines.filter((l) => l.unit === "L").reduce((a, l) => a + l.litres, 0));
   const lube = r2(items.reduce((a, i) => a + i.amount, 0)), exp = r2(expenses.reduce((a, e) => a + e.amount, 0));
-  const credit = r2(db.prepare("select coalesce(sum(a),0) t from credit_sales where pump_id=? and worker_id=? and status='ok' and created>=? and created<=?").get(pid, d.worker_id, d.started, d.submitted || now()).t);
+  const credit = r2(credits.filter((c) => c.status !== "rejected").reduce((a, c) => a + (+c.a || +c.amount || 0), 0));
+  const total_sales = r2(sales + lube);
   const pay = d.pay_json ? JSON.parse(d.pay_json) : { cash: d.cash, upi: d.upi, card: d.card };
-  const collected = r2(Object.values(pay).reduce((a, x) => a + (+x || 0), 0));
-  const expected = r2(sales + lube - credit - exp);
+  const collected = r2(Object.entries(pay).filter(([k]) => !k.startsWith('_')).reduce((a, [, x]) => a + (+x || 0), 0));
+  const expected = r2(total_sales - credit - exp);
   const w = db.prepare("select name from users where id=? and pump_id=?").get(d.worker_id, pid);
   return {
     id: d.id, d: d.d, shift: d.shift, status: d.status, worker_id: d.worker_id, worker: w ? w.name : "", pay,
     cash: +pay.cash || 0, upi: +pay.upi || 0, card: +pay.card || 0, note: d.note || "",
-    lines, items, expenses, litres, sales, lube, exp, credit, expected, collected, diff: r2(collected - expected),
+    lines, items, expenses, credits, litres, sales, lube, total_sales, exp, credit, expected, collected, diff: r2(collected - expected),
     pump_id: pid
   };
 }
@@ -934,6 +957,8 @@ function saveDuty(id, b, strict, full, pumpId = 1) {
     if (Number.isNaN(n)) return `Check the ${m.name} amount.`;
     pay[m.key] = n;
   }
+  if (b.pay && b.pay._cashDenom) pay._cashDenom = b.pay._cashDenom;
+  if (b.pay && b.pay._slips) pay._slips = b.pay._slips;
   db.transaction(() => {
     const u = db.prepare("update duty_lines set opening=?, closing=?, testing=?, rate=? where id=?");
     ups.forEach((o) => u.run(o.opening, o.closing, o.testing, o.rate, o.id));
@@ -962,7 +987,7 @@ const mine = (q, s, n) => {
   q.duty = d; n();
 };
 const fillInfo = (st) => ({
-  modes: activeModes(st).map((m) => ({ key: m.key, name: m.name })),
+  modes: activeModes(st).map((m) => ({ key: m.key, name: m.name, slipCounter: m.slipCounter, type: m.type })),
   cats: st.expcats && st.expcats.length ? st.expcats : ["Tea and food", "Repairs", "Electricity", "Transport", "Other"],
   items: (st.items || []).map((i) => ({ id: i.id, name: i.name, unit: i.unit, sell: i.sell, stock: i.stock })),
 });
@@ -976,7 +1001,7 @@ app.get("/api/my-duties/:id", need(), (q, s) => {
   const pid = q.user.pump_id;
   const d = db.prepare("select * from duties where id=? and pump_id=? and worker_id=? and status<>'open'").get(+q.params.id, pid, q.user.id);
   if (!d) return s.status(404).json({ error: "Duty not found." });
-  s.json({ duty: detail(d, pid), modes: allModes(stateNow(pid)).map((m) => ({ key: m.key, name: m.name })) });
+  s.json({ duty: detail(d, pid), modes: allModes(stateNow(pid)).map((m) => ({ key: m.key, name: m.name, slipCounter: m.slipCounter, type: m.type })) });
 });
 app.put("/api/duty/:id", need(), mine, (q, s) => {
   const e = saveDuty(q.duty.id, q.body || {}, false, false, q.user.pump_id);
@@ -1041,6 +1066,7 @@ app.delete("/api/duties/:id", need("owner", "manager"), (q, s) => {
     db.prepare("delete from duty_lines where duty_id=?").run(d.id);
     db.prepare("delete from duty_items where duty_id=?").run(d.id);
     db.prepare("delete from duty_expenses where duty_id=?").run(d.id);
+    db.prepare("update credit_sales set duty_id=null where duty_id=? and pump_id=?").run(d.id, pid);
     db.prepare("delete from duties where id=? and pump_id=?").run(d.id, pid);
     return 1;
   })();

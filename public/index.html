@@ -797,14 +797,14 @@ document.getElementById("app").innerHTML=h}
 function openM(h, wide){var s=document.getElementById("sheet");s.innerHTML=h;if(wide)s.classList.add("wide-sheet");else s.classList.remove("wide-sheet");document.getElementById("modal").classList.add("on")}
 function close(){document.getElementById("sheet").classList.remove("wide-sheet");document.getElementById("modal").classList.remove("on")}
 document.getElementById("modal").onclick=function(e){if(e.target.id=="modal")close()};
-function v(id){return document.getElementById(id).value.trim()}
+function v(id){var el=document.getElementById(id);return el&&el.value!=null?String(el.value).trim():""}
 function custForm(id){var c=id?find(id):{name:"",phone:"",gst:"",veh:[],limit:""};
 openM('<h2>'+(id?'Edit customer':'Add credit customer')+'</h2><label>Name<input id="f1" value="'+esc(c.name)+'"></label><label>Phone (WhatsApp)<input id="f2" inputmode="tel" value="'+esc(c.phone)+'"></label><label>GST number (optional)<input id="f3" value="'+esc(c.gst)+'"></label><label>Vehicles, one per line (add the tank size in litres after a comma if known)<textarea id="f4" placeholder="MH12 AB 1234, 200&#10;MH14 XY 9090" style="width:100%;height:90px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);padding:8px;font:inherit;margin-top:4px">'+esc(c.veh.map(function(x){return x+(c.vtank&&c.vtank[x]?", "+c.vtank[x]:"")}).join("\n"))+'</textarea></label><label>Credit limit (₹)<input id="f5" inputmode="numeric" value="'+esc(c.limit)+'"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveCust('+(id||0)+')">Save customer</button></div>')}
 function saveCust(id){var n=v("f1"),p=v("f2").replace(/\D/g,""),l=parseFloat(v("f5"));
 var pv=parseVeh(document.getElementById("f4").value);if(!n)return er("Enter the customer name.");if(p.length<10)return er("Enter a 10-digit phone number.");if(!(l>0))return er("Enter a credit limit above zero.");
 var o={name:n,phone:p,gst:v("f3").toUpperCase(),veh:pv.veh,vtank:pv.tank,limit:l};
 if(id){Object.assign(find(id),o)}else{o.id=Date.now();o.e=[];S.c.push(o)}save();close();render()}
-function er(m){document.getElementById("er").textContent=m}
+function er(m){var el=document.getElementById("er");if(el)el.textContent=m;else toast(m)}
 function rows(c){var bal=0;return c.e.map(function(x,i){return{x:x,i:i}}).sort(function(p,q){return p.x.d<q.x.d?-1:1}).map(function(o){bal+=o.x.t=="sale"?o.x.a:-o.x.a;o.bal=bal;o.skip=(from&&o.x.d<from)||(to&&o.x.d>to);return o})}
 function ageing(c){var paid=c.e.reduce(function(s,x){return s+(x.t=="pay"?x.a:0)},0),k=[0,0,0,0],now=Date.now(),L=["0-30 days","31-60","61-90","90+"];
 c.e.filter(function(x){return x.t=="sale"}).sort(function(p,q){return p.d<q.d?-1:1}).forEach(function(x){var r=x.a,u=Math.min(paid,r);paid-=u;r-=u;if(r>0){var dy=Math.floor((now-new Date(x.d))/864e5);k[dy<=30?0:dy<=60?1:dy<=90?2:3]+=r}});
@@ -1020,17 +1020,34 @@ if(!Object.keys(ch).length)return;
 api("PUT","/api/state",{vers:vs,changes:ch}).then(function(r){Object.keys(r.vers).forEach(function(n){VERS[n]=r.vers[n];SNAP[n]=secOf(o,n)});badge("")}).catch(function(e){if(e.status==409)openM('<h2>Data changed elsewhere</h2><div class="sub">Someone else saved changes to the same part of the data'+(e.conflicts?' ('+e.conflicts.join(", ")+')':'')+'. Reload to get the latest data. Your last change was not saved.</div><div class="btns"><button onclick="location.reload()">Reload now</button></div>');else if(e.status==401)location.reload();else badge("Could not save. Check your connection.")})}
 function pullDuty(cb){api("GET","/api/credit-sales").then(function(rows){CSALES=rows;S.c.forEach(function(c){c.e=c.e.filter(function(x){return !x.srv})});PEND=[];rows.forEach(function(r){if(r.status=="pending"){PEND.push(r);return}var c=find(r.cust_id);if(c)c.e.push({d:r.d,t:"sale",n:"Duty: "+r.n+(r.veh?" ("+r.veh+")":"")+" by "+r.worker,a:r.a,srv:r.id})});cb&&cb()}).catch(function(){cb&&cb()})}
 function pendHtml(){if(!SRV||!PEND.length)return '';var h='<div class="cust" style="cursor:default;border-color:var(--warn)"><b style="color:var(--warn)">'+PEND.length+' credit sale'+(PEND.length>1?'s':'')+' waiting for approval</b><div class="sub">Over the customer\'s credit limit. Managers and the owner can approve.</div>';
-PEND.forEach(function(r){var c=find(r.cust_id);h+='<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px"><div class="row"><b>'+esc(c?c.name:"Customer")+'</b><span class="amt" style="flex:none">'+inr(r.a)+'</span></div><div class="sub">'+esc(r.n)+(r.veh?' \u00b7 '+esc(r.veh):'')+' \u00b7 by '+esc(r.worker)+' \u00b7 '+r.d+'</div>'+(c?'<div class="sub">Due '+inr(due(c))+' of '+inr(c.limit)+' limit</div>':'')+'<div class="btns" style="margin:8px 0 0"><button onclick="decide('+r.id+',\'approve\')">Approve</button><button class="ghost" onclick="decide('+r.id+',\'reject\')">Reject</button></div></div>'});return h+'</div>'}
-function decide(id,w){api("POST","/api/credit-sales/"+id+"/"+w).then(function(){pullDuty(render)}).catch(function(e){badge(e.error||"Could not update.");pullDuty(render)})}
-var DT=null,DD=bizToday(),DF=null,WD=null,RV="sum",SU="nozzles",FUELS=["Petrol (MS)","Diesel (HSD)","Power petrol","Power diesel","Other"],DEFCATS=["Tea and food","Repairs","Electricity","Transport","Other"];
+PEND.forEach(function(r){var c=find(r.cust_id);h+='<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px"><div class="row"><b>'+esc(c?c.name:"Customer")+'</b><span class="amt" style="flex:none">'+inr(r.a)+'</span></div><div class="sub">'+esc(r.d)+' \u00b7 '+esc(r.worker)+' \u00b7 '+(r.fuel?esc(r.fuel)+(r.litres?' \u00b7 '+r.litres+' L':'') : esc(r.n))+(r.veh?' \u00b7 '+esc(r.veh):'')+'</div><div class="btns" style="margin-top:6px"><button class="ghost" style="padding:4px 8px" onclick="decide('+r.id+',\'approve\')">Approve</button><button class="ghost" style="padding:4px 8px;color:var(--due)" onclick="decide('+r.id+',\'reject\')">Reject</button></div></div>'});
+return h+'</div>'}
+function decide(id,w){api("POST","/api/credit-sales/"+id+"/"+w).then(function(){if(DF&&DF.mode=="review"&&DF.id){reviewDuty(DF.id)}else{pullDuty(render)}}).catch(function(e){badge(e.error||"Could not update.");if(DF&&DF.mode=="review"&&DF.id){reviewDuty(DF.id)}else{pullDuty(render)}})}
 function bizToday(){return new Date(Date.now()-216e5).toLocaleDateString("en-CA")}
-function allModes(){return S.paymodes&&S.paymodes.length?S.paymodes:[{key:"cash",name:"Cash",active:true},{key:"upi",name:"UPI",active:true},{key:"card",name:"Card",active:true}]}
-function mname(){var m={};allModes().forEach(function(x){m[x.key]=x.name});return m}
+var DT=null,DD=bizToday(),DF=null,WD=null,RV="sum",SU="nozzles",FUELS=["Petrol (MS)","Diesel (HSD)","Power petrol","Power diesel","Other"],DEFCATS=["Tea and food","Repairs","Electricity","Transport","Other"];
+function allModes(){
+  var def=[
+    {key:"cash",name:"Cash",active:true,slipCounter:false,type:"cash"},
+    {key:"upi",name:"UPI",active:true,slipCounter:true,type:"upi"},
+    {key:"card",name:"Card",active:true,slipCounter:true,type:"card"}
+  ];
+  if(!S.paymodes||!S.paymodes.length)return def;
+  return S.paymodes.map(function(m){
+    return {
+      key: m.key,
+      name: m.name,
+      active: m.active!==false,
+      slipCounter: m.key==="cash"?false:(m.slipCounter!==false),
+      type: m.type||(m.key==="card"?"card":m.key==="upi"?"upi":"slip")
+    };
+  });
+}
 function cats(){return S.expcats&&S.expcats.length?S.expcats:DEFCATS}
 function fnum(x){var n=parseFloat(x);return isNaN(n)?0:n}
 function R2(a,b){return '<div class="row"><span>'+a+'</span><span style="text-align:right">'+b+'</span></div>'}
 function sect(t){return '<h1 style="margin:16px 0 6px;color:var(--ink);font-size:17px;font-weight:800">'+t+'</h1>'}
 function sgn(x){return Math.abs(x)<1?'Tally':(x<0?'Short ':'Excess ')+inr(Math.abs(x))}
+function diffColor(x){return x<=-1?'var(--due)':'var(--ok)'}
 function wnav(){
   renderSidebar();
   var bizName = (ME && ME.pump_name) ? ME.pump_name : ((S && S.biz && S.biz.name) ? S.biz.name : "Petrol Pump");
@@ -1066,14 +1083,402 @@ function wnav(){
   return mobileTop + topStrip + desktopGrid;
 }
 function dsum(){var e=document.getElementById("dsum");if(!e||!DF)return;var L=0,A=0,P=0,X=0,C=0;
-DF.lines.forEach(function(l,i){var no=l.closing==="",lt=no?0:Math.round((fnum(l.closing)-fnum(l.opening)-fnum(l.testing))*100)/100,am=Math.round(lt*fnum(l.rate)*100)/100;if((l.unit||"L")=="L")L+=lt;A+=am;var x=document.getElementById("dl"+i);if(x)x.textContent=no?"Enter the closing reading":lt+" "+(l.unit||"L")+" sold = "+m2(am)});
-DF.items.forEach(function(it,i){var s=DF.stock.filter(function(x){return x.id==it.item_id})[0],am=s?Math.round(fnum(it.qty)*s.sell*100)/100:0;P+=am;var x=document.getElementById("il"+i);if(x)x.textContent=s?m2(am):""});
-DF.exps.forEach(function(x){X+=fnum(x.amount)});DF.modes.forEach(function(m){C+=fnum(DF.pay[m.key])});
-var ex=A+P-DF.credit-X,df=Math.round((C-ex)*100)/100;
-var lubeTag = P > 0 ? ' <span class="sub" style="font-size:12px">(' + DF.items.length + ' item' + (DF.items.length > 1 ? 's' : '') + ')</span>' : '';
-var creditTag = DF.credit > 0 ? ' <span class="sub" style="font-size:12px">(from Credit tab)</span>' : '';
-var expTag = X > 0 ? ' <span class="sub" style="font-size:12px">(' + DF.exps.length + ' entry' + (DF.exps.length > 1 ? 's' : '') + ')</span>' : '';
-e.innerHTML=R2("Liquid fuel sold",L.toFixed(2)+" L")+R2("Fuel sales",m2(A))+R2("Lube and shop sales",m2(P)+lubeTag)+R2("Less credit sales",m2(DF.credit)+creditTag)+R2("Less expenses paid from the till",m2(X)+expTag)+R2("Expected collection",m2(ex))+R2("Collected",m2(C))+'<div class="amt" style="color:'+(Math.abs(df)<1?'var(--ok)':'var(--due)')+'">'+R2(df<=-1?"Short":df>=1?"Excess":"Tally",m2(Math.abs(df)))+'</div>'}
+var hasUnenteredClosing=false,hasClosingError=false;
+DF.lines.forEach(function(l,i){
+  var no=(l.closing===""||l.closing==null||isNaN(parseFloat(l.closing)));
+  if(no)hasUnenteredClosing=true;
+  var openVal=fnum(l.opening),closeVal=no?0:fnum(l.closing),testVal=fnum(l.testing);
+  var isLess=(!no&&closeVal<openVal);
+  var isTestOver=(!no&&!isLess&&testVal>(closeVal-openVal));
+  if(isLess||isTestOver)hasClosingError=true;
+  var lt=(no||isLess||isTestOver)?0:Math.round((closeVal-openVal-testVal)*100)/100;
+  var am=Math.round(lt*fnum(l.rate)*100)/100;
+  if((l.unit||"L")=="L")L+=lt;
+  A+=am;
+  var x=document.getElementById("dl"+i);
+  if(x){
+    if(no){
+      x.innerHTML='<span style="color:var(--mute)">Enter closing meter reading</span>';
+    }else if(isLess){
+      x.innerHTML='<span style="color:var(--due);font-weight:600">\u26a0 Closing ('+closeVal+') is less than opening ('+openVal+')</span>';
+    }else if(isTestOver){
+      x.innerHTML='<span style="color:var(--due);font-weight:600">\u26a0 Testing ('+testVal+' '+(l.unit||"L")+') exceeds dispensed fuel</span>';
+    }else{
+      x.innerHTML='<span style="color:var(--ink);font-weight:600">'+lt+' '+(l.unit||"L")+' sold</span> <span class="sub">= '+inr(am)+'</span>';
+    }
+  }
+});
+DF.items.forEach(function(it,i){var s=DF.stock.filter(function(x){return x.id==it.item_id})[0],am=s?Math.round(fnum(it.qty)*s.sell*100)/100:0;P+=am;var x=document.getElementById("il"+i);if(x)x.textContent=s?inr(am):""});
+DF.exps.forEach(function(x){X+=fnum(x.amount)});
+DF.modes.forEach(function(m){C+=fnum(DF.pay[m.key])});
+var credList=DF.credits||[],credTotal=0;
+credList.forEach(function(c){if(c.status!=="rejected")credTotal+=fnum(c.amount||c.a)});
+DF.credit=Math.round(credTotal*100)/100;
+var totalSales=Math.round((A+P)*100)/100;
+var ex=Math.round((totalSales-DF.credit-X)*100)/100;
+var df=Math.round((C-ex)*100)/100;
+var lubeTag=P>0?' <span class="sub" style="font-size:12px">('+DF.items.length+' item'+(DF.items.length>1?'s':'')+')</span>':'';
+var creditTag=DF.credit>0?' <span class="sub" style="font-size:12px">('+credList.length+' sale'+(credList.length>1?'s':'')+')</span>':'';
+var expTag=X>0?' <span class="sub" style="font-size:12px">('+DF.exps.length+' entry'+(DF.exps.length>1?'s':'')+')</span>':'';
+var statusHtml='';
+if(hasClosingError){
+  statusHtml='<div class="amt" style="color:var(--due);margin-top:6px">\u26a0 Correct meter readings above</div>';
+}else if(hasUnenteredClosing){
+  statusHtml='<div class="amt" style="color:var(--warn);margin-top:6px">Pending closing readings</div><div class="sub" style="text-align:right">Enter closing meter reading for all nozzles to finalize tally</div>';
+}else{
+  var diffColor=df<=-1?'var(--due)':'var(--ok)';
+  var diffLabel=df<=-1?"Short":df>=1?"Excess":"Tally";
+  statusHtml='<div class="amt" style="color:'+diffColor+';margin-top:6px">'+R2(diffLabel,inr(Math.abs(df)))+'</div>';
+}
+e.innerHTML=R2("Liquid fuel sold",L.toFixed(2)+" L")+
+  R2("Fuel sales",inr(A))+
+  R2("Lube &amp; shop sales",inr(P)+lubeTag)+
+  '<div style="border-top:1px dashed var(--line);margin:6px 0"></div>'+
+  R2("<b>Total gross sales</b>","<b>"+inr(totalSales)+"</b>")+
+  R2("Less credit sales","&minus;"+inr(DF.credit)+creditTag)+
+  R2("Less expenses paid from till","&minus;"+inr(X)+expTag)+
+  '<div style="border-top:1px solid var(--line);margin:6px 0"></div>'+
+  R2("<b>Expected cash collection</b>","<b>"+inr(ex)+"</b>")+
+  R2("Collected (Cash + UPI + Card)",inr(C))+
+  '<div style="border-top:1px solid var(--line);margin:6px 0"></div>'+
+  statusHtml;
+}
+var CASH_DENOMS=[500,200,100,50,20,10,5];
+var _cashCounterData={targetId:"df_pay_cash",breakdown:{}};
+function calcCashDenomTotals(){
+  var b=_cashCounterData.breakdown;
+  var notes=0,amt=0;
+  CASH_DENOMS.forEach(function(d){
+    var c=parseInt(b[d],10)||0;
+    notes+=c;
+    amt+=c*d;
+  });
+  amt+=(parseFloat(b.coins)||0);
+  return{notes:notes,amt:Math.round(amt*100)/100};
+}
+function refreshCashCounterUI(){
+  var b=_cashCounterData.breakdown;
+  CASH_DENOMS.forEach(function(d){
+    var c=parseInt(b[d],10)||0;
+    var sub=c*d;
+    var el=document.getElementById("sub_denom_"+d);
+    if(el)el.innerHTML=inr(sub);
+  });
+  var coinsVal=parseFloat(b.coins)||0;
+  var cel=document.getElementById("sub_denom_coins");
+  if(cel)cel.innerHTML=inr(coinsVal);
+
+  var tot=calcCashDenomTotals();
+  var gEl=document.getElementById("denom_grand_total");
+  if(gEl)gEl.innerHTML=inr(tot.amt);
+  var nEl=document.getElementById("denom_total_notes");
+  if(nEl)nEl.textContent=tot.notes+" notes";
+  var bEl=document.getElementById("btn_apply_cash");
+  if(bEl)bEl.innerHTML="Apply "+inr(tot.amt)+" to Cash";
+}
+function onDenomInput(d,val){
+  var cleaned=String(val).replace(/\D/g,"");
+  if(cleaned==="0")cleaned="";
+  _cashCounterData.breakdown[d]=cleaned;
+  refreshCashCounterUI();
+}
+function incDenom(d,step){
+  var cur=parseInt(_cashCounterData.breakdown[d]||0,10)+step;
+  if(cur<0)cur=0;
+  _cashCounterData.breakdown[d]=cur>0?String(cur):"";
+  var inp=document.getElementById("inp_denom_"+d);
+  if(inp)inp.value=_cashCounterData.breakdown[d];
+  refreshCashCounterUI();
+}
+function onDenomCoins(val){
+  var cleaned=String(val).replace(/[^0-9.]/g,"");
+  _cashCounterData.breakdown.coins=cleaned;
+  refreshCashCounterUI();
+}
+function resetCashDenom(){
+  _cashCounterData.breakdown={};
+  CASH_DENOMS.forEach(function(d){
+    var inp=document.getElementById("inp_denom_"+d);
+    if(inp)inp.value="";
+  });
+  var cinp=document.getElementById("inp_denom_coins");
+  if(cinp)cinp.value="";
+  refreshCashCounterUI();
+}
+function copyCashBreakdown(){
+  var b=_cashCounterData.breakdown;
+  var tot=calcCashDenomTotals();
+  var lines=["💵 Cash Counter Breakdown:"];
+  CASH_DENOMS.forEach(function(d){
+    var c=parseInt(b[d],10)||0;
+    if(c>0)lines.push("₹"+d+" × "+c+" = "+inr(c*d));
+  });
+  var coinsVal=parseFloat(b.coins)||0;
+  if(coinsVal>0)lines.push("Coins / Change = "+inr(coinsVal));
+  lines.push("---------------------");
+  lines.push("Total Physical Cash: "+inr(tot.amt)+" ("+tot.notes+" notes)");
+  var txt=lines.join("\n");
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){badge("Cash breakdown copied!")}).catch(function(){badge("Copied cash summary")});
+  }else{
+    badge("Cash total: "+inr(tot.amt));
+  }
+}
+function applyCashDenom(targetId, payKey){
+  var tot=calcCashDenomTotals();
+  var k=payKey||_cashCounterData.payKey||"cash";
+  if(DF){
+    if(!DF.cashDenom)DF.cashDenom={};
+    DF.cashDenom=Object.assign({},_cashCounterData.breakdown);
+    if(DF.pay){
+      DF.pay[k]=tot.amt>0?tot.amt:(tot.amt===0?"0":"");
+    }
+  }
+  var tid=targetId||_cashCounterData.targetId||"df_pay_cash";
+  var el=document.getElementById(tid);
+  if(el){
+    el.value=tot.amt>0?tot.amt:"";
+    el.dispatchEvent(new Event("input"));
+  }
+  if(typeof dsum==="function")dsum();
+  close();
+  badge("Cash set: "+inr(tot.amt));
+}
+function openCashCounter(targetId, payKey){
+  _cashCounterData.targetId=targetId||"df_pay_cash";
+  _cashCounterData.payKey=payKey||"cash";
+  var b=(DF&&DF.cashDenom)?Object.assign({},DF.cashDenom):{};
+  var curCash=(DF&&DF.pay)?DF.pay[_cashCounterData.payKey]:"";
+  if(Object.keys(b).length===0 && curCash && parseFloat(curCash)>0){
+    b.coins=String(curCash);
+  }
+  _cashCounterData.breakdown=b;
+  var rowsHtml=CASH_DENOMS.map(function(d){
+    var count=b[d]||"";
+    var sub=(parseInt(count,10)||0)*d;
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);gap:8px">'+
+      '<div style="width:70px;font-weight:700;font-size:15px;color:var(--ink)">&#8377;'+d+'</div>'+
+      '<div style="display:flex;align-items:center;gap:4px;flex:1;max-width:170px">'+
+        '<button type="button" class="ghost" style="padding:4px 9px;font-size:15px;border:1px solid var(--line);border-radius:6px;line-height:1" onclick="incDenom('+d+',-1)">&minus;</button>'+
+        '<input id="inp_denom_'+d+'" type="text" inputmode="numeric" pattern="[0-9]*" value="'+count+'" placeholder="0" '+
+          'style="width:100%;text-align:center;padding:6px 2px;font-weight:700;font-size:15px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)" '+
+          'oninput="onDenomInput('+d+',this.value)">'+
+        '<button type="button" class="ghost" style="padding:4px 9px;font-size:15px;border:1px solid var(--line);border-radius:6px;line-height:1" onclick="incDenom('+d+',1)">+</button>'+
+      '</div>'+
+      '<div id="sub_denom_'+d+'" style="width:85px;text-align:right;font-weight:700;font-size:14px;color:var(--ink)">'+inr(sub)+'</div>'+
+    '</div>';
+  }).join("");
+  var coins=b.coins||"";
+  var coinsVal=parseFloat(coins)||0;
+  var coinsRow='<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);gap:8px">'+
+    '<div style="width:70px;font-weight:600;font-size:13px;color:var(--mute)">Coins / Change</div>'+
+    '<div style="flex:1;max-width:170px">'+
+      '<input id="inp_denom_coins" type="text" inputmode="decimal" value="'+coins+'" placeholder="0" '+
+        'style="width:100%;text-align:center;padding:6px 2px;font-weight:700;font-size:15px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)" '+
+        'oninput="onDenomCoins(this.value)">'+
+    '</div>'+
+    '<div id="sub_denom_coins" style="width:85px;text-align:right;font-weight:700;font-size:14px;color:var(--ink)">'+inr(coinsVal)+'</div>'+
+  '</div>';
+  var tot=calcCashDenomTotals();
+  var modalHtml='<h2>💵 Cash Denomination Counter</h2>'+
+    '<div class="sub" style="margin-bottom:12px">Count physical currency notes &amp; coins for duty cash collection.</div>'+
+    '<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">'+
+      '<div>'+
+        '<div class="sub" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Total Cash</div>'+
+        '<div id="denom_grand_total" style="font-size:24px;font-weight:800;color:var(--ok)">'+inr(tot.amt)+'</div>'+
+      '</div>'+
+      '<div style="text-align:right">'+
+        '<div class="sub" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Total Notes</div>'+
+        '<div id="denom_total_notes" style="font-size:16px;font-weight:700;color:var(--ink)">'+tot.notes+' notes</div>'+
+      '</div>'+
+    '</div>'+
+    '<div style="max-height:48vh;overflow-y:auto;padding-right:2px">'+
+      rowsHtml+coinsRow+
+    '</div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">'+
+      '<button type="button" class="ghost" style="padding:4px 8px;font-size:12px;color:var(--due)" onclick="resetCashDenom()">Clear</button>'+
+      '<button type="button" class="ghost" style="padding:4px 8px;font-size:12px" onclick="copyCashBreakdown()">📋 Copy summary</button>'+
+    '</div>'+
+    '<div class="row" style="margin-top:14px">'+
+      '<button type="button" class="ghost" onclick="close()">Cancel</button>'+
+      '<button type="button" id="btn_apply_cash" onclick="applyCashDenom(\''+_cashCounterData.targetId+'\',\''+_cashCounterData.payKey+'\')">Apply '+inr(tot.amt)+' to Cash</button>'+
+    '</div>';
+  openM(modalHtml,false);
+}
+window.openCashCounter=openCashCounter;
+window.incDenom=incDenom;
+window.onDenomInput=onDenomInput;
+window.onDenomCoins=onDenomCoins;
+window.resetCashDenom=resetCashDenom;
+window.copyCashBreakdown=copyCashBreakdown;
+window.applyCashDenom=applyCashDenom;
+
+var _slipCounterData={targetId:"df_pay_upi",modeKey:"upi",modeName:"UPI",type:"upi",slips:[]};
+function calcSlipTotals(){
+  var slips=_slipCounterData.slips||[];
+  var amt=0;
+  slips.forEach(function(s){amt+=(parseFloat(s.amount)||0)});
+  return{count:slips.length,amt:Math.round(amt*100)/100};
+}
+function renderSlipItemsUI(){
+  var data=_slipCounterData;
+  var tot=calcSlipTotals();
+  var gEl=document.getElementById("slip_grand_total");
+  if(gEl)gEl.innerHTML=inr(tot.amt);
+  var cEl=document.getElementById("slip_total_count");
+  if(cEl)cEl.textContent=tot.count+" slips";
+  var bEl=document.getElementById("btn_apply_slips");
+  if(bEl)bEl.innerHTML="Apply "+inr(tot.amt)+" to "+esc(data.modeName);
+  var listEl=document.getElementById("slip_items_list");
+  if(listEl){
+    if(!data.slips||!data.slips.length){
+      listEl.innerHTML='<div class="empty" style="padding:14px;font-size:13px">No slips added yet. Enter amounts above to add slips.</div>';
+    }else{
+      listEl.innerHTML=data.slips.map(function(s,i){
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);gap:8px">'+
+          '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">'+
+            '<span style="font-size:12px;color:var(--mute);font-weight:700;margin-right:6px">#'+(i+1)+'</span>'+
+            '<span style="font-weight:700;font-size:15px;color:var(--ink)">'+inr(s.amount)+'</span>'+
+            (s.ref?' <span class="sub" style="font-size:12px;margin-left:4px">('+esc(s.ref)+')</span>':'')+
+          '</div>'+
+          '<button type="button" class="ghost" style="padding:3px 8px;font-size:12px;color:var(--due);flex:none" onclick="removeSlipItem('+i+')">&times; Remove</button>'+
+        '</div>';
+      }).join("");
+    }
+  }
+}
+function addSlipItem(){
+  var aEl=document.getElementById("new_slip_amt");
+  var rEl=document.getElementById("new_slip_ref");
+  if(!aEl)return;
+  var rawAmt=aEl.value.trim();
+  if(!rawAmt)return;
+  var ref=rEl?rEl.value.trim():"";
+  var parts=rawAmt.split(/[,+\s]+/).map(function(x){return x.replace(/[^0-9.]/g,"")}).filter(Boolean);
+  if(parts.length>1){
+    parts.forEach(function(p){
+      var n=parseFloat(p);
+      if(!isNaN(n)&&n>0){
+        _slipCounterData.slips.push({amount:n,ref:ref});
+      }
+    });
+  }else{
+    var n=parseFloat(rawAmt.replace(/[^0-9.]/g,""));
+    if(!isNaN(n)&&n>0){
+      _slipCounterData.slips.push({amount:n,ref:ref});
+    }
+  }
+  aEl.value="";
+  if(rEl)rEl.value="";
+  renderSlipItemsUI();
+  aEl.focus();
+}
+function removeSlipItem(idx){
+  if(_slipCounterData.slips&&_slipCounterData.slips[idx]!==undefined){
+    _slipCounterData.slips.splice(idx,1);
+    renderSlipItemsUI();
+  }
+}
+function clearAllSlips(){
+  _slipCounterData.slips=[];
+  renderSlipItemsUI();
+}
+function copySlipsSummary(){
+  var data=_slipCounterData;
+  var icon=data.type==="card"?"💳 ":data.type==="upi"?"📱 ":data.type==="cheque"?"📝 ":"🧾 ";
+  var lines=[icon+data.modeName+" Slips ("+data.slips.length+" slips):"];
+  data.slips.forEach(function(s,idx){
+    lines.push((idx+1)+". "+inr(s.amount)+(s.ref?" ("+s.ref+")":""));
+  });
+  lines.push("---------------------");
+  var tot=calcSlipTotals();
+  lines.push("Total "+data.modeName+": "+inr(tot.amt)+" ("+tot.count+" slips)");
+  var txt=lines.join("\n");
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){badge("Slips breakdown copied!")}).catch(function(){badge("Copied slips summary")});
+  }else{
+    badge(data.modeName+" total: "+inr(tot.amt));
+  }
+}
+function applySlipCounter(){
+  var data=_slipCounterData;
+  var tot=calcSlipTotals();
+  if(DF){
+    if(!DF.slips)DF.slips={};
+    DF.slips[data.modeKey]=data.slips.slice();
+    if(!DF.pay)DF.pay={};
+    DF.pay[data.modeKey]=tot.amt>0?tot.amt:(tot.amt===0?"0":"");
+  }
+  var el=document.getElementById(data.targetId);
+  if(el){
+    el.value=tot.amt>0?tot.amt:"";
+    el.dispatchEvent(new Event("input"));
+  }
+  if(typeof dsum==="function")dsum();
+  close();
+  badge(data.modeName+" set: "+inr(tot.amt)+" ("+tot.count+" slips)");
+}
+function openSlipCounter(targetId,modeKey,modeName,type){
+  _slipCounterData.targetId=targetId||("df_pay_"+modeKey);
+  _slipCounterData.modeKey=modeKey||"upi";
+  _slipCounterData.modeName=modeName||(modeKey==="card"?"Card":modeKey==="upi"?"UPI":"Slips");
+  _slipCounterData.type=type||(modeKey==="card"?"card":modeKey==="upi"?"upi":modeKey==="cheque"?"cheque":"slip");
+  var existingSlips=(DF&&DF.slips&&DF.slips[_slipCounterData.modeKey])?DF.slips[_slipCounterData.modeKey].slice():[];
+  var curVal=(DF&&DF.pay)?DF.pay[_slipCounterData.modeKey]:"";
+  if(existingSlips.length===0&&curVal&&parseFloat(curVal)>0){
+    existingSlips.push({amount:parseFloat(curVal),ref:"Current total"});
+  }
+  _slipCounterData.slips=existingSlips;
+  var icon=_slipCounterData.type==="card"?"💳":_slipCounterData.type==="upi"?"📱":_slipCounterData.type==="cheque"?"📝":"🧾";
+  var tot=calcSlipTotals();
+  var modalHtml='<h2>'+icon+' '+esc(_slipCounterData.modeName)+' Slips Counter</h2>'+
+    '<div class="sub" style="margin-bottom:12px">Add individual transaction or charge slips, vouchers, chits, or cheques to tally '+esc(_slipCounterData.modeName)+' collections.</div>'+
+    '<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">'+
+      '<div>'+
+        '<div class="sub" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Total '+esc(_slipCounterData.modeName)+'</div>'+
+        '<div id="slip_grand_total" style="font-size:24px;font-weight:800;color:var(--ok)">'+inr(tot.amt)+'</div>'+
+      '</div>'+
+      '<div style="text-align:right">'+
+        '<div class="sub" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Total Slips</div>'+
+        '<div id="slip_total_count" style="font-size:16px;font-weight:700;color:var(--ink)">'+tot.count+' slips</div>'+
+      '</div>'+
+    '</div>'+
+    '<div style="background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:12px">'+
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--ink)">+ Add Slip</div>'+
+      '<div style="display:flex;gap:6px;align-items:center">'+
+        '<div style="flex:2">'+
+          '<input id="new_slip_amt" type="text" inputmode="decimal" placeholder="Amount (&#8377;)" style="margin:0;font-size:15px;font-weight:700" onkeydown="if(event.key===\'Enter\')addSlipItem()">'+
+        '</div>'+
+        '<div style="flex:2">'+
+          '<input id="new_slip_ref" type="text" placeholder="Slip # / Note (opt)" style="margin:0;font-size:13px" onkeydown="if(event.key===\'Enter\')addSlipItem()">'+
+        '</div>'+
+        '<button type="button" onclick="addSlipItem()" style="flex:none;padding:8px 14px;font-weight:700">+ Add</button>'+
+      '</div>'+
+      '<div class="sub" style="font-size:11px;margin-top:4px">Tip: Enter multiple amounts separated by commas or plus (e.g. 500, 1200, 350)</div>'+
+    '</div>'+
+    '<div style="max-height:36vh;overflow-y:auto;padding-right:2px;margin-bottom:8px" id="slip_items_list"></div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">'+
+      '<button type="button" class="ghost" style="padding:4px 8px;font-size:12px;color:var(--due)" onclick="clearAllSlips()">Clear all</button>'+
+      '<button type="button" class="ghost" style="padding:4px 8px;font-size:12px" onclick="copySlipsSummary()">📋 Copy summary</button>'+
+    '</div>'+
+    '<div class="row" style="margin-top:14px">'+
+      '<button type="button" class="ghost" onclick="close()">Cancel</button>'+
+      '<button type="button" id="btn_apply_slips" onclick="applySlipCounter()">Apply '+inr(tot.amt)+' to '+esc(_slipCounterData.modeName)+'</button>'+
+    '</div>';
+  openM(modalHtml,false);
+  renderSlipItemsUI();
+  setTimeout(function(){
+    var aEl=document.getElementById("new_slip_amt");
+    if(aEl)aEl.focus();
+  },100);
+}
+window.openSlipCounter=openSlipCounter;
+window.addSlipItem=addSlipItem;
+window.removeSlipItem=removeSlipItem;
+window.clearAllSlips=clearAllSlips;
+window.copySlipsSummary=copySlipsSummary;
+window.applySlipCounter=applySlipCounter;
+
 function fin(label,path,val,ed){return '<label>'+label+'<input '+(ed?'':'disabled ')+'inputmode="decimal" value="'+esc(val)+'" oninput="'+path+'=this.value;dsum()"></label>'}
 function formHtml(){var wk=DF.mode=="worker",h='';
 DF.lines.forEach(function(l,i){var P='DF.lines['+i+'].';h+='<div class="cust" style="cursor:default"><b>'+esc(l.name)+'</b> <span class="sub">'+esc(l.fuel)+'</span><div class="row">'+fin("Opening",P+'opening',l.opening,!wk)+fin("Closing",P+'closing',l.closing,1)+'</div><div class="row">'+fin("Testing ("+(l.unit||"L")+")",P+'testing',l.testing,1)+fin("Rate (\u20b9/"+(l.unit||"L")+")",P+'rate',l.rate,!wk)+'</div><div class="sub" id="dl'+i+'" style="margin-top:6px"></div></div>'});
@@ -1084,23 +1489,66 @@ if(!wk){
   h+=sect("Expenses paid from the till");
   DF.exps.forEach(function(x,i){var cl=DF.cats.indexOf(x.cat)<0?DF.cats.concat([x.cat]):DF.cats;h+='<div class="cust" style="cursor:default"><select onchange="DF.exps['+i+'].cat=this.value">'+cl.map(function(c){return '<option'+(x.cat==c?' selected':'')+'>'+esc(c)+'</option>'}).join("")+'</select><label>Details<input value="'+esc(x.note)+'" oninput="DF.exps['+i+'].note=this.value"></label><div class="row">'+fin("Amount (\u20b9)","DF.exps["+i+"].amount",x.amount,1)+'<button class="ghost" style="flex:none;padding:6px 10px" onclick="DF.exps.splice('+i+',1);renderDF()">Remove</button></div></div>'});
   h+='<button class="ghost" onclick="DF.exps.push({cat:DF.cats[0],note:\'\',amount:\'\'});renderDF()">Add expense</button>';
+  if(DF.credits && DF.credits.length){
+    h+=sect("Credit sales on this duty");
+    DF.credits.forEach(function(c){
+      h+='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(c.cname||"Customer")+'</b><span class="amt" style="color:var(--due)">&minus;'+inr(c.a||c.amount)+'</span></div><div class="sub">'+(c.fuel?esc(c.fuel)+(c.litres?' \u00b7 '+c.litres+' L':'') : esc(c.n||""))+(c.veh?' \u00b7 '+esc(c.veh):'')+'</div>'+(c.status=="pending"?'<div class="sub" style="color:var(--warn);font-weight:600;margin-top:4px">Waiting for approval <button class="ghost" style="padding:4px 8px;margin-left:6px" onclick="decide('+c.id+',\'approve\')">Approve</button><button class="ghost" style="padding:4px 8px;margin-left:4px;color:var(--due)" onclick="decide('+c.id+',\'reject\')">Reject</button></div>':'')+'</div>';
+    });
+  }
 }
-h+=sect("Money collected")+'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">'+DF.modes.map(function(m){return fin(esc(m.name),"DF.pay['"+m.key+"']",DF.pay[m.key]||"",1)}).join("")+'</div>';
-h+='<label>Note (optional)<input value="'+esc(DF.note)+'" oninput="DF.note=this.value"></label><div class="cust" id="dsum" style="cursor:default;margin-top:12px"></div><div class="err" id="er"></div>';
+h+=sect("Money collected")+'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">'+DF.modes.map(function(m){
+  var isCash=(m.key==="cash"||(m.name&&m.name.toLowerCase()==="cash"));
+  var isUpi=(m.key==="upi"||(m.name&&m.name.toLowerCase().indexOf("upi")>=0));
+  var isCard=(m.key==="card"||(m.name&&m.name.toLowerCase().indexOf("card")>=0));
+  var hasSlipCounter = !isCash && (m.slipCounter !== false);
+  if(isCash){
+    var notesCount = (DF.cashDenom && DF.cashDenom._totalNotes) ? (' <span class="sub" style="font-size:11px">('+DF.cashDenom._totalNotes+' notes)</span>') : '';
+    return '<label>'+esc(m.name)+notesCount+
+      '<input id="df_pay_cash" inputmode="decimal" readonly style="cursor:pointer" onclick="openCashCounter(\'df_pay_cash\',\''+esc(m.key)+'\')" value="'+esc(DF.pay[m.key]||"")+'" placeholder="0.00" title="Click to open Cash Counter">'+
+    '</label>';
+  }
+  if(hasSlipCounter){
+    var slipType = m.type || (isUpi ? 'upi' : (isCard ? 'card' : (m.key==="cheque" || (m.name&&m.name.toLowerCase().indexOf("cheque")>=0) ? 'cheque' : 'slip')));
+    var count = (DF.slips && DF.slips[m.key]) ? DF.slips[m.key].length : 0;
+    var countHint = count > 0 ? (' <span class="sub" style="font-size:11px">('+count+' slip'+(count>1?'s':'')+')</span>') : '';
+    return '<label>'+esc(m.name)+countHint+
+      '<input id="df_pay_'+esc(m.key)+'" inputmode="decimal" readonly style="cursor:pointer" onclick="openSlipCounter(\'df_pay_'+esc(m.key)+'\',\''+esc(m.key)+'\',\''+esc(m.name).replace(/'/g,"\\'")+'\',\''+esc(slipType)+'\')" value="'+esc(DF.pay[m.key]||"")+'" placeholder="0.00" title="Click to count '+esc(m.name)+' slips">'+
+    '</label>';
+  }
+  return fin(esc(m.name),"DF.pay['"+m.key+"']",DF.pay[m.key]||"",1);
+}).join("")+'</div>';
+h+='<div class="cust" id="dsum" style="cursor:default;margin-top:12px"></div><div class="err" id="er"></div>';
 setTimeout(dsum,0);return h}
-function fromDuty(d,ctx,mode){var pay={};Object.keys(d.pay||{}).forEach(function(k){pay[k]=d.pay[k]||""});
-return{id:d.id,mode:mode,modes:ctx.modes,cats:ctx.cats,stock:ctx.items,lines:d.lines.map(function(l){return{nozzle_id:l.nozzle_id,name:l.nozzle,fuel:l.fuel,unit:l.unit||"L",opening:l.opening==null?"":l.opening,closing:l.closing==null?"":l.closing,testing:l.testing||0,rate:l.rate==null?"":l.rate}}),items:d.items.map(function(i){return{item_id:i.item_id,qty:i.qty}}),exps:d.expenses.map(function(e){return{cat:e.cat,note:e.note,amount:e.amount}}),pay:pay,note:d.note||"",credit:d.credit,meta:d}}
-function dpay(){return{lines:DF.lines.map(function(l){return{nozzle_id:l.nozzle_id,opening:l.opening,closing:l.closing,testing:l.testing,rate:l.rate}}),items:DF.items,expenses:DF.exps,pay:DF.pay,note:DF.note}}
+function fromDuty(d,ctx,mode){var pay={};Object.keys(d.pay||{}).forEach(function(k){if(k!=="_cashDenom"&&k!=="_slips")pay[k]=d.pay[k]||""});
+var cashDenom=(d.pay&&d.pay._cashDenom)?d.pay._cashDenom:(d.cash_denom||{});
+var slips=(d.pay&&d.pay._slips)?d.pay._slips:(d.slips||{});
+return{id:d.id,mode:mode,modes:ctx.modes,cats:ctx.cats,stock:ctx.items,lines:d.lines.map(function(l){return{nozzle_id:l.nozzle_id,name:l.nozzle,fuel:l.fuel,unit:l.unit||"L",opening:l.opening==null?"":l.opening,closing:l.closing==null?"":l.closing,testing:l.testing||0,rate:l.rate==null?"":l.rate}}),items:d.items.map(function(i){return{item_id:i.item_id,qty:i.qty}}),exps:d.expenses.map(function(e){return{cat:e.cat,note:e.note,amount:e.amount}}),credits:d.credits||[],pay:pay,note:d.note||"",credit:d.credit||0,cashDenom:cashDenom,slips:slips,meta:d}}
+function dpay(){var pay=Object.assign({},DF.pay);if(DF.cashDenom)pay._cashDenom=DF.cashDenom;if(DF.slips)pay._slips=DF.slips;return{lines:DF.lines.map(function(l){return{nozzle_id:l.nozzle_id,opening:l.opening,closing:l.closing,testing:l.testing,rate:l.rate}}),items:DF.items,expenses:DF.exps,pay:pay,note:DF.note}}
 function msg(m,good){var e=document.getElementById("er");if(e){e.style.color=good?"var(--ok)":"var(--due)";e.textContent=m}}
 function renderDF(){var m=DF.meta,h;
-if(DF.mode=="worker")h=ubar()+wnav()+'<h1>'+esc(m.shift)+' duty \u00b7 '+m.d+'</h1><div class="sub">Opening readings and rates are set by your manager. Credit sales, lubes, and expenses saved in their tabs are counted automatically.</div>'+formHtml()+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="wSave(0)">Save draft</button><button onclick="wSave(1)">Submit duty</button></div>';
+if(DF.mode=="worker")h=ubar()+wnav()+'<h1>'+esc(m.shift)+' duty \u00b7 '+m.d+'</h1>'+formHtml()+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="wSave(0)">Save draft</button><button onclick="wSave(1)">Submit duty</button></div>';
 else h=nav()+'<button class="ghost noprint" onclick="renderDutyTab()">Back to duty list</button><h1 style="margin-top:14px">'+esc(m.worker)+' \u00b7 '+esc(m.shift)+' \u00b7 '+m.d+'</h1><div class="sub">Check the figures, correct anything that is wrong, then close the duty.</div>'+formHtml()+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="mSave(0)">Save changes</button><button onclick="mSave(1)">Close duty</button></div>';
 document.getElementById("app").innerHTML=h}
 function dutyBlock(d,mn){var T=function(a,b,c){return '<tr><td>'+a+'</td><td class="r"'+(c?' style="color:'+c+'"':'')+'>'+b+'</td></tr>'};
-var h='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(d.worker)+' \u00b7 '+esc(d.shift)+'</b><span class="sub" style="flex:none">'+d.d+'</span></div><div class="tbl" style="margin-top:8px"><table><tr><th>Nozzle</th><th class="r">Open</th><th class="r">Close</th><th class="r">Test</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr>'+d.lines.map(function(l){return '<tr><td>'+esc(l.nozzle)+'<div class="sub">'+esc(l.fuel)+'</div></td><td class="r">'+l.opening+'</td><td class="r">'+l.closing+'</td><td class="r">'+l.testing+'</td><td class="r">'+l.litres+'</td><td class="r">'+m2(l.rate)+'</td><td class="r">'+m2(l.amount)+'</td></tr>'}).join("")+'</table></div>';
+var totSales=(d.total_sales!=null?d.total_sales:r2(d.sales+d.lube));
+var h='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(d.worker)+' \u00b7 '+esc(d.shift)+'</b><span class="sub" style="flex:none">'+d.d+'</span></div><div class="tbl" style="margin-top:8px"><table><tr><th>Nozzle</th><th class="r">Open</th><th class="r">Close</th><th class="r">Test</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr>'+d.lines.map(function(l){
+  var closeDisp=(l.closing==null||l.closing==="")?'<span class="sub">-</span>':l.closing;
+  return '<tr><td>'+esc(l.nozzle)+'<div class="sub">'+esc(l.fuel)+'</div></td><td class="r">'+l.opening+'</td><td class="r">'+closeDisp+'</td><td class="r">'+(l.testing||0)+'</td><td class="r">'+(l.litres||0)+'</td><td class="r">'+m2(l.rate)+'</td><td class="r">'+m2(l.amount)+'</td></tr>';
+}).join("")+'</table></div>';
 if(d.items.length)h+='<div class="tbl" style="margin-top:8px"><table><tr><th>Lube / shop</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr>'+d.items.map(function(i){return '<tr><td>'+esc(i.name)+'</td><td class="r">'+i.qty+'</td><td class="r">'+m2(i.price)+'</td><td class="r">'+m2(i.amount)+'</td></tr>'}).join("")+'</table></div>';
 if(d.expenses.length)h+='<div class="tbl" style="margin-top:8px"><table style="min-width:0"><tr><th>Expense</th><th class="r">Amount</th></tr>'+d.expenses.map(function(e){return '<tr><td>'+esc(e.cat)+(e.note?'<div class="sub">'+esc(e.note)+'</div>':'')+'</td><td class="r">'+m2(e.amount)+'</td></tr>'}).join("")+'</table></div>';
-h+='<div class="tbl" style="margin-top:8px"><table style="min-width:0">'+T("Fuel sales",m2(d.sales))+T("Lube and shop sales",m2(d.lube))+T("Less credit sales","\u2212"+m2(d.credit))+T("Less expenses","\u2212"+m2(d.exp))+T("<b>Expected collection</b>","<b>"+m2(d.expected)+"</b>")+Object.keys(d.pay).map(function(k){return T(esc(mn[k]||k),m2(d.pay[k]))}).join("")+T("<b>Collected</b>","<b>"+m2(d.collected)+"</b>")+T("<b>Difference</b>","<b>"+sgn(d.diff)+"</b>",Math.abs(d.diff)<1?'var(--ok)':'var(--due)')+'</table></div>'+(d.note?'<div class="sub" style="margin-top:6px">Note: '+esc(d.note)+'</div>':'')+'</div>';
+if(d.credits && d.credits.length)h+='<div class="tbl" style="margin-top:8px"><table style="min-width:0"><tr><th>Credit sale</th><th>Vehicle</th><th class="r">Litres / item</th><th class="r">Amount</th></tr>'+d.credits.map(function(c){return '<tr><td><b>'+esc(c.cname||"Customer")+'</b>'+(c.status=="pending"?' <div class="sub" style="color:var(--warn)">(Pending)</div>':'')+'</td><td>'+(c.veh?esc(c.veh):'-')+'</td><td class="r">'+(c.litres?c.litres+' L':(c.fuel?esc(c.fuel):esc(c.n||"-")))+'</td><td class="r" style="color:var(--due)">&minus;'+m2(c.a||c.amount)+'</td></tr>'}).join("")+'</table></div>';
+h+='<div class="tbl" style="margin-top:8px"><table style="min-width:0">'+
+  T("Fuel sales",m2(d.sales))+
+  T("Lube and shop sales",m2(d.lube))+
+  T("<b>Total gross sales</b>","<b>"+m2(totSales)+"</b>")+
+  T("Less credit sales","\u2212"+m2(d.credit))+
+  T("Less expenses","\u2212"+m2(d.exp))+
+  T("<b>Expected collection</b>","<b>"+m2(d.expected)+"</b>")+
+  Object.keys(d.pay).map(function(k){return T(esc(mn[k]||k),m2(d.pay[k]))}).join("")+
+  T("<b>Collected</b>","<b>"+m2(d.collected)+"</b>")+
+  T("<b>Difference</b>","<b>"+sgn(d.diff)+"</b>",diffColor(d.diff))+
+  '</table></div>'+(d.note?'<div class="sub" style="margin-top:6px">Note: '+esc(d.note)+'</div>':'')+'</div>';
 return h}
 // ---- Worker
 function loadW(){
@@ -1111,7 +1559,7 @@ function loadW(){
 function renderW(){if(WD.duty){DF=fromDuty(WD.duty,{modes:WD.modes,cats:WD.cats,items:WD.items},"worker");return renderDF()}
 var h=ubar()+wnav()+'<h1>My duty</h1><div class="empty">No duty assigned yet. Your manager assigns your shift and nozzles.</div><h1 style="margin-top:22px">My recent duties</h1>';
 if(!WD.recent.length)h+='<div class="empty">No duties yet.</div>';
-WD.recent.forEach(function(d){h+='<div class="cust" tabindex="0" onclick="viewMyDuty('+d.id+')"><div class="row"><b>'+esc(d.shift)+' \u00b7 '+d.d+'</b><span class="sub" style="flex:none;color:'+(d.status=="closed"?'var(--ok)':'var(--warn)')+'">'+(d.status=="closed"?"Closed":"Waiting for manager")+'</span></div><div class="sub">'+d.litres+' L \u00b7 Sales '+inr(d.sales+d.lube)+' \u00b7 Collected '+inr(d.collected)+' \u00b7 '+sgn(d.diff)+'</div></div>'});
+WD.recent.forEach(function(d){h+='<div class="cust" tabindex="0" onclick="viewMyDuty('+d.id+')"><div class="row"><b>'+esc(d.shift)+' \u00b7 '+d.d+'</b><span class="sub" style="flex:none;color:'+(d.status=="closed"?'var(--ok)':'var(--warn)')+'">'+(d.status=="closed"?"Closed":"Waiting for manager")+'</span></div><div class="sub">'+d.litres+' L \u00b7 Sales '+inr(d.sales+d.lube)+' \u00b7 Collected '+inr(d.collected)+' \u00b7 <span style="color:'+diffColor(d.diff)+';font-weight:600">'+sgn(d.diff)+'</span></div></div>'});
 document.getElementById("app").innerHTML=h}
 function viewMyDuty(id){api("GET","/api/my-duties/"+id).then(function(r){var mn={};r.modes.forEach(function(m){mn[m.key]=m.name});document.getElementById("app").innerHTML=ubar()+wnav()+'<button class="ghost" onclick="loadW()">Back to my duties</button><div style="margin-top:10px">'+dutyBlock(r.duty,mn)+'</div>'}).catch(function(e){toast(e.error||"Could not open the duty.")})}
 function wSave(sub){var go=function(){api(sub?"POST":"PUT","/api/duty/"+DF.id+(sub?"/submit":""),dpay()).then(function(){if(sub){DF=null;loadW()}else msg("Draft saved.",1)}).catch(function(e){msg(e.error||"Could not save. Check your connection.")})};
@@ -1294,13 +1742,13 @@ tab="duty";A.innerHTML=nav()+'<div class="empty">Loading\u2026</div>';
 api("GET","/api/duties?d="+DD).then(function(r){if(tab!="duty")return;var st=r.day_status,h=nav()+'<h1>Duty and nozzle readings</h1><div class="btns"><button onclick="assignForm()">Assign duty</button><button class="ghost" onclick="sumForm()">Daily summary</button><button class="ghost" onclick="dayReport()">Day report</button><button class="ghost" onclick="renderShort()">Shortage report</button></div>';
 h+='<label>Business day<input type="date" value="'+DD+'" onchange="DD=this.value;renderDutyTab()"></label><div class="cust" style="cursor:default;margin-top:10px"><div class="row"><b>'+DD+'</b><span style="flex:none;color:'+(st=="approved"?'var(--ok)':st=="closed"?'var(--warn)':'var(--ink)')+'">'+(st=="approved"?"Approved by owner":st=="closed"?"Closed, waiting for owner":"Open")+'</span></div><div class="sub">The business day runs from 6 AM to 6 AM.</div><div class="btns" style="margin:8px 0 0">'+(st=="open"?'<button onclick="dayAsk(\'close\')">Close day</button>':'')+(st=="closed"&&ME.role=="owner"?'<button onclick="dayAct(\'approve\')">Approve day</button>':'')+(st!="open"&&ME.role=="owner"?'<button class="ghost" onclick="dayAct(\'reopen\')">Reopen day</button>':'')+'</div></div>';
 if(r.open.length)h+='<div class="cust" style="cursor:default"><b>Duties in progress</b>'+r.open.map(function(d){return '<div class="row" style="margin-top:10px"><span>'+esc(d.worker)+' \u00b7 '+esc(d.shift)+'<div class="sub">'+d.lines.map(function(l){return esc(l.nozzle)}).join(", ")+' \u00b7 '+d.d+'</div></span><button class="ghost" style="flex:none;padding:6px 10px" onclick="cancelDuty('+d.id+')">Cancel</button></div>'}).join("")+'</div>';
-if(r.pending.length)h+='<div class="cust" style="cursor:default;border-color:var(--warn)"><b style="color:var(--warn)">'+r.pending.length+' dut'+(r.pending.length>1?'ies':'y')+' waiting to be closed</b>'+r.pending.map(function(d){return '<div class="row" style="margin-top:10px"><span>'+esc(d.worker)+' \u00b7 '+esc(d.shift)+' \u00b7 '+d.d+'<div class="sub">'+sgn(d.diff)+'</div></span><button style="flex:none" onclick="reviewDuty('+d.id+')">Review</button></div>'}).join("")+'</div>';
+if(r.pending.length)h+='<div class="cust" style="cursor:default;border-color:var(--warn)"><b style="color:var(--warn)">'+r.pending.length+' dut'+(r.pending.length>1?'ies':'y')+' waiting to be closed</b>'+r.pending.map(function(d){return '<div class="row" style="margin-top:10px"><span>'+esc(d.worker)+' \u00b7 '+esc(d.shift)+' \u00b7 '+d.d+'<div class="sub" style="color:'+diffColor(d.diff)+'">'+sgn(d.diff)+'</div></span><button style="flex:none" onclick="reviewDuty('+d.id+')">Review</button></div>'}).join("")+'</div>';
 var T={l:0,s:0,k:0,d:0},F={};
 h+='<div class="tbl" style="margin-top:12px"><table><tr><th>Worker</th><th class="r">Litres</th><th class="r">Sales</th><th class="r">Collected</th><th class="r">Short / excess</th><th></th></tr>';
 r.day.forEach(function(d){T.l+=d.litres;T.s+=d.sales+d.lube;T.k+=d.collected;T.d+=d.diff;d.lines.forEach(function(l){var k=l.fuel||"Other",f=F[k]||(F[k]={l:0,a:0});f.l+=l.litres;f.a+=l.amount});
-h+='<tr><td>'+esc(d.worker)+'<div class="sub">'+esc(d.shift)+' \u00b7 '+(d.status=="closed"?"closed":"to close")+'</div></td><td class="r">'+d.litres+'</td><td class="r">'+inr(d.sales+d.lube)+'</td><td class="r">'+inr(d.collected)+'</td><td class="r" style="color:'+(Math.abs(d.diff)<1?'var(--ok)':'var(--due)')+'">'+sgn(d.diff)+'</td><td><button class="ghost" style="padding:5px 8px" onclick="reviewDuty('+d.id+')">Open</button></td></tr>'});
+h+='<tr><td>'+esc(d.worker)+'<div class="sub">'+esc(d.shift)+' \u00b7 '+(d.status=="closed"?"closed":"to close")+'</div></td><td class="r">'+d.litres+'</td><td class="r">'+inr(d.sales+d.lube)+'</td><td class="r">'+inr(d.collected)+'</td><td class="r" style="color:'+diffColor(d.diff)+';font-weight:600">'+sgn(d.diff)+'</td><td><button class="ghost" style="padding:5px 8px" onclick="reviewDuty('+d.id+')">Open</button></td></tr>'});
 if(!r.day.length)h+='<tr><td colspan="6" class="empty">No submitted duties on this date.</td></tr>';
-else h+='<tr><td><b>Day total</b></td><td class="r"><b>'+Math.round(T.l*100)/100+'</b></td><td class="r"><b>'+inr(T.s)+'</b></td><td class="r"><b>'+inr(T.k)+'</b></td><td class="r"><b>'+sgn(T.d)+'</b></td><td></td></tr>';
+else h+='<tr><td><b>Day total</b></td><td class="r"><b>'+Math.round(T.l*100)/100+'</b></td><td class="r"><b>'+inr(T.s)+'</b></td><td class="r"><b>'+inr(T.k)+'</b></td><td class="r" style="color:'+diffColor(T.d)+'"><b>'+sgn(T.d)+'</b></td><td></td></tr>';
 h+='</table></div>';
 A.innerHTML=h}).catch(function(e){badge(e.error||"Could not load duties.")})}
 function dayAct(a){api("POST","/api/days/"+DD+"/"+a).then(function(){renderDutyTab()}).catch(function(e){toast(e.error||"Could not update the day.")})}
@@ -1314,7 +1762,7 @@ openM('<h2>Assign duty</h2><div class="sub">Business day '+r.date+'</div><label>
 function doAssign(){var ids=[].slice.call(document.querySelectorAll(".an:checked")).map(function(x){return x.value});if(!ids.length)return er("Choose at least one nozzle.");api("POST","/api/duties/assign",{worker_id:v("as_w"),shift:v("as_s"),nozzle_ids:ids}).then(function(){close();renderDutyTab()}).catch(function(e){er(e.error||"Could not assign.")})}
 function reviewDuty(id){api("GET","/api/duties/"+id).then(function(d){var pay=d.pay||{};
 if(d.status=="closed"){document.getElementById("app").innerHTML=nav()+'<button class="ghost noprint" onclick="renderDutyTab()">Back to duty list</button><div style="margin-top:10px">'+dutyBlock(d,mname())+'</div>'+(ME.role=="owner"?'<div class="btns noprint"><button class="ghost" onclick="reopenDuty('+d.id+')">Reopen for changes</button></div>':'');return}
-var ms=allModes().filter(function(m){return m.active!==false||m.key=="cash"||pay[m.key]!=null}).map(function(m){return{key:m.key,name:m.name}}),ci=S.items.map(function(i){return{id:i.id,name:i.name,unit:i.unit,sell:i.sell,stock:i.stock}});
+var ms=allModes().filter(function(m){return m.active!==false||m.key=="cash"||pay[m.key]!=null}).map(function(m){return{key:m.key,name:m.name,slipCounter:m.slipCounter,type:m.type}}),ci=S.items.map(function(i){return{id:i.id,name:i.name,unit:i.unit,sell:i.sell,stock:i.stock}});
 DF=fromDuty(d,{modes:ms,cats:cats(),items:ci},"review");renderDF()}).catch(function(e){toast(e.error||"Could not open the duty.")})}
 function mSave(close){api("PUT","/api/duties/"+DF.id,dpay()).then(function(){return close?api("POST","/api/duties/"+DF.id+"/close"):0}).then(function(){if(close)reloadState(renderDutyTab);else msg("Changes saved.",1)}).catch(function(e){msg(e.error||"Could not save.")})}
 function reopenDuty(id){api("POST","/api/duties/"+id+"/reopen").then(function(){reloadState(function(){reviewDuty(id)})}).catch(function(e){toast(e.error||"Could not reopen.")})}
@@ -1322,7 +1770,7 @@ function dayReport(){api("GET","/api/day-report?d="+DD).then(function(r){var mn=
 if(!r.duties.length)h+='<div class="empty">No closed duties on this date.</div>';
 else if(RV=="det")r.duties.forEach(function(d){h+=dutyBlock(d,mn)});
 else{var tb=function(title,head,rows){return rows.length?sect(title)+'<div class="tbl"><table style="min-width:0"><tr>'+head.map(function(c,i){return '<th'+(i?' class="r"':'')+'>'+c+'</th>'}).join("")+'</tr>'+rows.map(function(x){return '<tr>'+x.map(function(c,i){return '<td'+(i?' class="r"':'')+'>'+c+'</td>'}).join("")+'</tr>'}).join("")+'</table></div>':''};
-h+=tb("Fuel sold",["Fuel","Quantity","Amount"],Object.keys(s.fuel).map(function(k){return [esc(k),Math.round(s.fuel[k].litres*100)/100,m2(s.fuel[k].amount)]}))+tb("Lubes and shop",["Item","Qty","Amount"],Object.keys(s.shop).map(function(k){return [esc(k),s.shop[k].qty,m2(s.shop[k].amount)]}))+tb("Expenses by category",["Category","Amount"],Object.keys(s.exps).map(function(k){return [esc(k),m2(s.exps[k])]}))+tb("Collections",["Mode","Amount"],Object.keys(s.pay).map(function(k){return [esc(mn[k]||k),m2(s.pay[k])]}))+sect("Totals")+'<div class="cust" style="cursor:default">'+R2("Fuel sales",m2(s.sales))+R2("Lube and shop sales",m2(s.lube))+R2("<b>Total sales</b>","<b>"+m2(s.total)+"</b>")+R2("Credit sales",m2(s.credit))+R2("Expenses",m2(s.exp))+R2("Expected collection",m2(s.expected))+R2("Collected",m2(s.collected))+'<div class="amt" style="color:'+(Math.abs(s.diff)<1?'var(--ok)':'var(--due)')+'">'+R2("Difference",sgn(s.diff))+'</div><div class="sub">'+r.duties.length+' closed dut'+(r.duties.length>1?'ies':'y')+'</div></div>'}
+h+=tb("Fuel sold",["Fuel","Quantity","Amount"],Object.keys(s.fuel).map(function(k){return [esc(k),Math.round(s.fuel[k].litres*100)/100,m2(s.fuel[k].amount)]}))+tb("Lubes and shop",["Item","Qty","Amount"],Object.keys(s.shop).map(function(k){return [esc(k),s.shop[k].qty,m2(s.shop[k].amount)]}))+tb("Expenses by category",["Category","Amount"],Object.keys(s.exps).map(function(k){return [esc(k),m2(s.exps[k])]}))+tb("Collections",["Mode","Amount"],Object.keys(s.pay).map(function(k){return [esc(mn[k]||k),m2(s.pay[k])]}))+sect("Totals")+'<div class="cust" style="cursor:default">'+R2("Fuel sales",m2(s.sales))+R2("Lube and shop sales",m2(s.lube))+R2("<b>Total sales</b>","<b>"+m2(s.total)+"</b>")+R2("Credit sales",m2(s.credit))+R2("Expenses",m2(s.exp))+R2("Expected collection",m2(s.expected))+R2("Collected",m2(s.collected))+'<div class="amt" style="color:'+diffColor(s.diff)+'">'+R2("Difference",sgn(s.diff))+'</div><div class="sub">'+r.duties.length+' closed dut'+(r.duties.length>1?'ies':'y')+'</div></div>'}
 XD=dayDoc(r,mn);document.getElementById("app").innerHTML=h}).catch(function(e){toast(e.error||"Could not load the report.")})}
 // ---- Vyapar Themes System
 var VYAPAR_THEMES = [
@@ -1507,8 +1955,61 @@ fs.forEach(function(f){var c=rateNow(f,bizToday());h+='<div class="cust" style="
 var hs=S.rates.slice().sort(function(a,b){return a.from<b.from?1:-1});if(hs.length){h+=sect("Rate history");hs.forEach(function(r){h+='<div class="row" style="margin-top:6px"><span>'+esc(r.fuel)+' \u00b7 '+m2(r.rate)+'<div class="sub">From '+r.from+'</div></span><button class="ghost" style="flex:none;padding:5px 8px" onclick="rateDel('+r.id+')">Delete</button></div>'})}}
 else if(SU=="cats"){h+='<div class="sub">Workers choose from these when they enter an expense.</div>';cats().forEach(function(c,i){h+='<div class="row" style="margin-top:8px"><span>'+esc(c)+'</span><button class="ghost" style="flex:none;padding:5px 8px" onclick="catDel('+i+')">Remove</button></div>'});
 h+='<label>New category<input id="nc"></label><div class="err" id="er"></div><button style="margin-top:10px" onclick="catAdd()">Add category</button>'}
-else if(SU=="modes"){h+='<div class="sub">Turn off the payment modes you do not use. They disappear from duty forms. Cash is always on.</div>';allModes().forEach(function(m,i){h+='<div class="row" style="margin-top:8px"><span>'+esc(m.name)+'</span><button class="'+(m.active!==false?'':'ghost')+'" style="flex:none;padding:6px 10px"'+(m.key=="cash"?' disabled':'')+' onclick="modeTog('+i+')">'+(m.active!==false?'On':'Off')+'</button></div>'});
-h+='<label>Add a payment mode<input id="nm" placeholder="e.g. Fleet card"></label><div class="err" id="er"></div><button style="margin-top:10px" onclick="modeAdd()">Add mode</button>'}
+else if(SU=="modes"){
+  h+='<div class="sub" style="margin-bottom:12px">Manage collection and payment modes used at your pump. Every mode (UPI, Card, Fleet Card, Cheques, Chits, Vouchers) includes the <b>Slip-Counting Facility</b> so workers can count and enter individual charge slips, chits, and receipts. Cash uses the Denomination Counter.</div>';
+  allModes().forEach(function(m,i){
+    var isCash=m.key==="cash";
+    var icon=isCash?"💵":(m.type==="card"?"💳":(m.type==="upi"?"📱":(m.type==="cheque"?"📝":"🧾")));
+    var facilityBadge=isCash
+      ?'<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--card);border:1px solid var(--line);color:var(--ok)">💵 Cash Denominations</span>'
+      :(m.slipCounter!==false
+        ?'<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--theme-accent-soft);color:var(--theme-accent)">🧾 Slip Counter: Enabled</span>'
+        :'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--card);border:1px solid var(--line);color:var(--mute)">Direct entry</span>');
+    var isCustom=!isCash&&m.key!=="upi"&&m.key!=="card";
+
+    h+='<div class="cust" style="cursor:default;margin-top:8px'+(m.active===false?';opacity:0.6':'')+'">'+
+      '<div class="row" style="align-items:center">'+
+        '<div>'+
+          '<span style="font-size:16px;margin-right:6px">'+icon+'</span><b>'+esc(m.name)+'</b>'+
+          '<div style="margin-top:4px">'+facilityBadge+'</div>'+
+        '</div>'+
+        '<div style="display:flex;gap:6px;align-items:center;flex:none">'+
+          (!isCash?'<button class="ghost" style="padding:6px 10px;font-size:12px" title="Toggle slip counting" onclick="modeSlipTog('+i+')">'+(m.slipCounter!==false?'Slip Counter: ON':'Slip Counter: OFF')+'</button>':'')+
+          '<button class="'+(m.active!==false?'':'ghost')+'" style="padding:6px 10px;font-size:12px"'+(isCash?' disabled':'')+' onclick="modeTog('+i+')">'+(m.active!==false?'Active':'Off')+'</button>'+
+          (isCustom?'<button class="ghost" style="padding:6px 8px;font-size:12px;color:var(--due)" title="Delete mode" onclick="modeDel('+i+')">&times;</button>':'')+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  });
+
+  h+='<div class="cust" style="cursor:default;margin-top:16px;border:1px dashed var(--line);background:var(--card)">'+
+    '<h2 style="font-size:15px;margin:0 0 4px;font-weight:700">Add Collection Mode with Slip-Counting</h2>'+
+    '<div class="sub" style="margin-bottom:10px">Add any collection mode used at your station with automatic slip-counting for your workers.</div>'+
+    '<label>Collection Mode Name<input id="nm" placeholder="e.g. Fleet card, BPCL Fleet, Cheque, Petrol Chit, HP Pay, Indent"></label>'+
+    '<label>Mode Category / Slip Type'+
+      '<select id="nm_type">'+
+        '<option value="slip">🧾 Slips / Vouchers / Petrol Chits / Indents</option>'+
+        '<option value="card">💳 Fleet Card / Card EDC Terminal</option>'+
+        '<option value="upi">📱 UPI / QR / Digital Wallet</option>'+
+        '<option value="cheque">📝 Cheques / Bank Slips</option>'+
+      '</select>'+
+    '</label>'+
+    '<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin:10px 0 12px;cursor:pointer">'+
+      '<input type="checkbox" id="nm_slip" checked style="width:auto;margin:0">'+
+      '<span>Enable Slip-Counting facility <span class="sub" style="font-weight:normal">(Worker can count and enter individual slips & notes)</span></span>'+
+    '</label>'+
+    '<div class="sub" style="font-size:12px;font-weight:600;margin-bottom:6px">Quick presets:</div>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">'+
+      '<button type="button" class="ghost" style="font-size:12px;padding:4px 9px" onclick="modeQuickAdd(\'Fleet card\',\'card\')">+ Fleet Card</button>'+
+      '<button type="button" class="ghost" style="font-size:12px;padding:4px 9px" onclick="modeQuickAdd(\'Cheque\',\'cheque\')">+ Cheque</button>'+
+      '<button type="button" class="ghost" style="font-size:12px;padding:4px 9px" onclick="modeQuickAdd(\'Petrol Chit\',\'slip\')">+ Petrol Chit</button>'+
+      '<button type="button" class="ghost" style="font-size:12px;padding:4px 9px" onclick="modeQuickAdd(\'HP Pay\',\'upi\')">+ HP Pay / QR</button>'+
+      '<button type="button" class="ghost" style="font-size:12px;padding:4px 9px" onclick="modeQuickAdd(\'IOCL XtraPower\',\'card\')">+ IOCL XtraPower</button>'+
+    '</div>'+
+    '<div class="err" id="er"></div>'+
+    '<button style="width:100%;margin-top:6px" onclick="modeAdd()">+ Add Collection Mode</button>'+
+  '</div>';
+}
 else if(SU=="fuels"){h+='<div class="sub">The fuels you sell. Choose a unit for each (litre, kg for CNG, kWh for EV charging). Density limits are used to flag density checks on liquid fuels. The limits shown first are common defaults: confirm them with your oil company and change them here.</div><div class="btns"><button onclick="fuelEdit(-1)">Add fuel product</button></div>';
 fprods().forEach(function(p,i){var cf=p.unit=="L"?'<div class="sub">Density '+(p.dmin!=null&&p.dmin!==""?p.dmin:(DENSD[p.name]?DENSD[p.name][0]:"no limit"))+' to '+(p.dmax!=null&&p.dmax!==""?p.dmax:(DENSD[p.name]?DENSD[p.name][1]:"no limit"))+' \u00b7 tolerance '+(p.dtol!=null&&p.dtol!==""?p.dtol:0.003)+'</div>':'';h+='<div class="cust" style="cursor:default'+(p.active===false?';opacity:.6':'')+'"><div class="row"><b>'+esc(p.name)+'</b><span class="sub" style="flex:none">'+esc(p.unit)+(p.active===false?' \u00b7 inactive':'')+'</span></div>'+cf+'<div class="btns" style="margin:8px 0 0"><button class="ghost" style="padding:6px 10px" onclick="fuelEdit('+i+')">Edit</button></div></div>'})}
 else if(SU=="station"){
@@ -1571,7 +2072,11 @@ function rateDel(id){ask("Delete this rate?",function(){S.rates=S.rates.filter(f
 function catAdd(){var c=v("nc");if(!c)return er("Enter a category name.");var l=cats().slice();if(l.indexOf(c)>=0)return er("That category already exists.");l.push(c);S.expcats=l;save();renderSetup()}
 function catDel(i){var l=cats().slice();l.splice(i,1);if(!l.length)l=["Other"];S.expcats=l;save();renderSetup()}
 function modeTog(i){var l=allModes().map(function(m){return Object.assign({},m)});if(l[i].key=="cash")return;l[i].active=l[i].active===false;S.paymodes=l;save();renderSetup()}
-function modeAdd(){var nm=v("nm");if(!nm)return er("Enter a name.");var l=allModes().map(function(m){return Object.assign({},m)});if(l.some(function(m){return m.name.toLowerCase()==nm.toLowerCase()}))return er("That mode already exists.");l.push({key:"m"+Date.now(),name:nm,active:true});S.paymodes=l;save();renderSetup()}
+function modeSlipTog(i){var l=allModes().map(function(m){return Object.assign({},m)});if(l[i].key=="cash")return;l[i].slipCounter=(l[i].slipCounter===false)?true:false;S.paymodes=l;save();renderSetup()}
+function modeDel(i){var l=allModes().map(function(m){return Object.assign({},m)});var m=l[i];if(!m||m.key=="cash"||m.key=="upi"||m.key=="card")return toast("Default mode cannot be deleted. You can turn it off instead.");ask("Delete the collection mode '"+m.name+"'?",function(){l.splice(i,1);S.paymodes=l;save();renderSetup()})}
+function modeQuickAdd(name,type){var l=allModes().map(function(m){return Object.assign({},m)});if(l.some(function(m){return m.name.toLowerCase()==name.toLowerCase()})){toast(name+" already exists in payment modes.");return}l.push({key:"m"+Date.now(),name:name,active:true,slipCounter:true,type:type||"slip"});S.paymodes=l;save();renderSetup()}
+function modeAdd(){var nm=v("nm");if(!nm)return er("Enter a name.");var l=allModes().map(function(m){return Object.assign({},m)});if(l.some(function(m){return m.name.toLowerCase()==nm.toLowerCase()}))return er("That mode already exists.");var typeEl=document.getElementById("nm_type");var type=typeEl?typeEl.value:"slip";var slipEl=document.getElementById("nm_slip");var slipCounter=slipEl?slipEl.checked:true;l.push({key:"m"+Date.now(),name:nm,active:true,slipCounter:slipCounter,type:type});S.paymodes=l;save();renderSetup()}
+window.modeTog=modeTog;window.modeSlipTog=modeSlipTog;window.modeDel=modeDel;window.modeQuickAdd=modeQuickAdd;window.modeAdd=modeAdd;
 function custTog(id){var c=find(id);c.active=c.active===false;save();renderSetup()}
 var TK = null, DIP_NOTES = {}, DENS_FILTER = { tank_id: "" };
 var TANK_VIEW = "stock"; // "stock" | "dens" | "overview" | "meter"
@@ -3836,16 +4341,259 @@ function loadSetupPumps(){
 function logout(){try{localStorage.removeItem("petrol_auth_token")}catch(e){}AUTH_TOKEN="";if(fbAuth){try{fbAuth.signOut()}catch(e){}}api("POST","/api/logout").then(function(){location.reload()}).catch(function(){location.reload()})}
 function pwForm(){openM('<h2>Change password</h2><label>Current password<input id="p1" type="password"></label><label>New password (6+ characters)<input id="p2" type="password"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="savePw()">Change password</button></div>')}
 function savePw(){api("POST","/api/password",{old:document.getElementById("p1").value,password:document.getElementById("p2").value}).then(function(){openM('<h2>Password changed</h2><div class="btns"><button onclick="close()">Close</button></div>')}).catch(function(e){er(e.error||"Could not change the password.")})}
-function loadCredit(){Promise.all([api("GET","/api/customers"),api("GET","/api/my-credit-sales"),api("GET","/api/fuels")]).then(function(r){CL=r[0];MY=r[1];CF=r[2];renderCredit()}).catch(function(e){document.getElementById("app").innerHTML=ubar()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>'})}
-function renderCredit(){var h=ubar()+wnav()+'<h1>Credit sale</h1><div class="sub" style="margin-bottom:4px">Saved sales appear in the customer ledger straight away.</div><label>Customer<select id="d1" onchange="dcust()"><option value="">Choose customer</option>'+CL.map(function(c){return '<option value="'+c.id+'">'+esc(c.name)+'</option>'}).join("")+'</select></label><div class="sub" id="d0" style="margin-top:4px"></div><label>Vehicle number<input id="d2" list="vl" autocapitalize="characters"><datalist id="vl"></datalist></label><label>Fuel<select id="d5"><option value="">Other item (not fuel)</option>'+CF.map(function(f,i){return '<option'+(i==0?' selected':'')+'>'+esc(f.name)+'</option>'}).join("")+'</select></label><label>Quantity (litres, kg or kWh)<input id="d6" inputmode="decimal"></label><label>Details (needed for other items)<input id="d3" placeholder="e.g. engine oil 1 L"></label><label>Amount (\u20b9)<input id="d4" inputmode="decimal"></label><div class="err" id="er"></div><button style="width:100%" onclick="saveDuty(0)">Save credit sale</button><h1 style="margin-top:22px">My recent entries</h1>';
-if(!MY.length)h+='<div class="empty">No entries yet.</div>';
-MY.forEach(function(x){h+='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(x.cname)+'</b><span class="amt" style="flex:none">'+inr(x.a)+'</span></div><div class="sub">'+x.d+' \u00b7 '+esc(x.n)+(x.veh?' \u00b7 '+esc(x.veh):'')+'</div>'+(x.status=="pending"?'<div class="sub" style="color:var(--warn)">Waiting for manager approval</div>':x.status=="rejected"?'<div class="sub" style="color:var(--due)">Rejected by manager</div>':'')+'</div>'});
-document.getElementById("app").innerHTML=h}
-function dcust(){var c=CL.filter(function(x){return x.id==v("d1")})[0];document.getElementById("vl").innerHTML=c?c.veh.map(function(x){return '<option value="'+esc(x)+'">'}).join(""):"";document.getElementById("d0").textContent=c?"Credit available: "+inr(c.available):""}
-function saveDuty(force){var a=parseFloat(v("d4")),fu=v("d5"),lt=parseFloat(v("d6")),b={cust_id:v("d1"),fuel:fu,litres:fu?lt:"",n:v("d3"),a:a,veh:v("d2"),force:!!force};
-if(!b.cust_id)return er("Choose a customer.");if(fu&&!(lt>0))return er("Enter the litres.");if(!fu&&!b.n)return er("Describe the item.");if(!(a>0))return er("Enter an amount above zero.");
-var c=CL.filter(function(x){return x.id==b.cust_id})[0],go=function(){api("POST","/api/credit-sales",b).then(function(){loadCredit()}).catch(function(e){er(e.error||"Could not save. Check your connection.")})};
-if(c&&a>c.available)return ask("This is more than the customer's available credit ("+inr(c.available)+"). It will be sent to a manager for approval. Continue?",go);go()}
+function syncDutyData(dutyObj, ctx){
+  if(!dutyObj) return;
+  if(DF && DF.id == dutyObj.id){
+    var oldLines = DF.lines || [];
+    var oldPay = DF.pay || {};
+    var fresh = fromDuty(dutyObj, ctx, "worker");
+    fresh.lines.forEach(function(fl){
+      var ol = oldLines.find(function(x){ return x.nozzle_id == fl.nozzle_id; });
+      if(ol && ol.closing !== "" && ol.closing != null) fl.closing = ol.closing;
+      if(ol && ol.testing !== undefined && ol.testing !== null) fl.testing = ol.testing;
+    });
+    Object.keys(oldPay).forEach(function(k){
+      if(oldPay[k] !== "" && oldPay[k] != null) fresh.pay[k] = oldPay[k];
+    });
+    if(DF.cashDenom) fresh.cashDenom = Object.assign({}, DF.cashDenom);
+    if(DF.slips) fresh.slips = JSON.parse(JSON.stringify(DF.slips));
+    DF = fresh;
+  } else {
+    DF = fromDuty(dutyObj, ctx, "worker");
+  }
+}
+function loadCredit(){
+  tab="credit";
+  if(CL && CL.length && CF && CF.length && DF && DF.meta && DF.id){
+    renderCredit();
+    Promise.all([
+      api("GET","/api/customers"),
+      api("GET","/api/my-credit-sales"),
+      api("GET","/api/duty/current")
+    ]).then(function(r){
+      CL=r[0]||[];
+      MY=r[1]||[];
+      WD=r[2]||{};
+      if(WD && WD.duty) syncDutyData(WD.duty, { modes: WD.modes, cats: WD.cats, items: WD.items });
+      if(tab=="credit") renderCredit();
+    }).catch(function(){});
+    return;
+  }
+  document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Loading credit &amp; duty details\u2026</div>';
+  Promise.all([
+    api("GET","/api/customers"),
+    api("GET","/api/my-credit-sales"),
+    api("GET","/api/fuels"),
+    api("GET","/api/duty/current")
+  ]).then(function(r){
+    CL=r[0]||[];
+    MY=r[1]||[];
+    CF=r[2]||[];
+    WD=r[3]||{};
+    if(WD&&WD.duty){
+      syncDutyData(WD.duty, { modes: WD.modes, cats: WD.cats, items: WD.items });
+    }
+    renderCredit();
+  }).catch(function(e){
+    document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>';
+  });
+}
+function renderCredit(){
+  tab="credit";
+  var hasDuty = !!(DF && DF.meta && DF.id);
+  var m = hasDuty ? DF.meta : null;
+  var shiftCredits = hasDuty ? ((DF.credits && DF.credits.length) ? DF.credits : (MY || []).filter(function(x){ return x.duty_id == DF.id; })) : [];
+  var totalCredit = 0;
+  shiftCredits.forEach(function(c){ if(c.status !== "rejected") totalCredit += fnum(c.amount || c.a); });
+
+  var h = ubar() + wnav();
+
+  if(hasDuty){
+    h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">' +
+      '<div><h1>Credit sales on duty</h1><div class="sub">' + esc(m.shift) + ' duty \u00b7 ' + m.d + ' \u00b7 Linked directly with duty &amp; deducted from expected cash collection</div></div>' +
+      '<div style="text-align:right"><button class="ghost" style="padding:6px 12px;font-size:13px" onclick="tab=\'wduty\';renderDF()">View duty form \u2192</button></div>' +
+    '</div>' +
+    '<div class="cust" style="cursor:default;margin:12px 0;background:var(--card)">' +
+      '<div class="row"><b>Total credit sales for this shift</b><span class="amt" style="flex:none;color:var(--due)">&minus;' + inr(totalCredit) + '</span></div>' +
+      '<div class="sub" style="margin-top:4px">' + shiftCredits.length + ' sale(s) recorded for this shift \u00b7 Deducted from expected cash collection</div>' +
+    '</div>';
+  } else {
+    h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">' +
+      '<div><h1>Credit sales</h1><div class="sub">Record fuel and item sales on customer credit account</div></div>' +
+      '<div style="text-align:right"><button class="ghost" style="padding:6px 12px;font-size:13px" onclick="loadW()">View my duties \u2192</button></div>' +
+    '</div>' +
+    '<div class="cust" style="cursor:default;margin:12px 0;background:var(--card);border-left:3px solid var(--warn)">' +
+      '<b>No active duty in progress</b>' +
+      '<div class="sub" style="margin-top:2px">When your manager assigns your shift and nozzles, your credit sales link directly to your duty and deduct automatically from your required cash collection.</div>' +
+    '</div>';
+  }
+
+  h += '<h1 style="margin-top:18px;font-size:16px">+ Record credit sale' + (hasDuty ? ' on duty' : '') + '</h1>' +
+    '<div class="cust" style="cursor:default;background:var(--card)">' +
+      '<label style="margin-top:4px">Customer' +
+        '<select id="wc_cust" onchange="dcustW()">' +
+          '<option value="">Choose customer</option>' +
+          CL.map(function(c){ return '<option value="' + c.id + '">' + esc(c.name) + '</option>'; }).join("") +
+        '</select>' +
+      '</label>' +
+      '<div class="sub" id="wc_avail" style="margin-top:4px;font-weight:600"></div>' +
+      '<label style="margin-top:8px">Vehicle number (optional)' +
+        '<input id="wc_veh" list="wc_vl" autocapitalize="characters" placeholder="e.g. MH-12-AB-1234">' +
+        '<datalist id="wc_vl"></datalist>' +
+      '</label>' +
+      '<label style="margin-top:8px">Product / Fuel' +
+        '<select id="wc_fuel" onchange="calcWcPreview()">' +
+          '<option value="">Other item (not fuel)</option>' +
+          CF.map(function(f, i){
+            var r = (DF && DF.lines) ? (DF.lines.find(function(l){ return l.fuel == f.name; }) || {}).rate : null;
+            return '<option value="' + esc(f.name) + '" data-unit="' + esc(f.unit || "L") + '" data-rate="' + (r || "") + '"' + (i == 0 ? ' selected' : '') + '>' +
+              esc(f.name) + (r ? ' (\u20b9' + r + '/' + (f.unit || "L") + ')' : '') +
+            '</option>';
+          }).join("") +
+        '</select>' +
+      '</label>' +
+      '<div class="row" style="margin-top:8px">' +
+        '<label>Quantity (litres / units)<input id="wc_litres" inputmode="decimal" placeholder="e.g. 25" oninput="calcWcPreview()"></label>' +
+        '<label>Amount (\u20b9)<input id="wc_amt" inputmode="decimal" placeholder="e.g. 2500" oninput="calcWcManualAmt()"></label>' +
+      '</div>' +
+      '<label style="margin-top:8px">Details / Note (required for other items)' +
+        '<input id="wc_note" placeholder="e.g. Engine oil 1L or diesel filling">' +
+      '</label>' +
+      '<div class="sub" id="wc_calc_sub" style="margin-top:4px"></div>' +
+      '<div class="err" id="wc_err"></div>' +
+      '<button type="button" style="width:100%;margin-top:10px" onclick="addWCreditSale(0)">Record credit sale' + (hasDuty ? ' on duty' : '') + '</button>' +
+    '</div>';
+
+  if(hasDuty){
+    h += '<h1 style="margin-top:24px;font-size:16px">Recorded for this duty (' + shiftCredits.length + ')</h1>';
+    if(!shiftCredits.length){
+      h += '<div class="empty">No credit sales recorded for this shift yet.</div>';
+    } else {
+      shiftCredits.forEach(function(x){
+        var cName = x.cname || (CL.find(function(c){ return String(c.id) == String(x.cust_id); }) || {}).name || "Customer";
+        var amt = fnum(x.amount || x.a);
+        var isPending = x.status == "pending";
+        var isRejected = x.status == "rejected";
+        h += '<div class="cust" style="cursor:default;margin-top:8px' + (isPending ? ';border-color:var(--warn)' : isRejected ? ';border-color:var(--due)' : '') + '">' +
+          '<div class="row"><b>' + esc(cName) + '</b><span class="amt" style="flex:none;color:var(--due)">&minus;' + inr(amt) + '</span></div>' +
+          '<div class="row" style="margin-top:4px">' +
+            '<span class="sub">' + (x.fuel ? esc(x.fuel) + (x.litres ? ' \u00b7 ' + x.litres + ' L' : '') : esc(x.n || "")) + (x.veh ? ' \u00b7 ' + esc(x.veh) : '') + '</span>' +
+            '<button class="ghost" style="flex:none;padding:5px 10px;font-size:12px;color:var(--due)" onclick="removeWCreditSale(' + x.id + ')">Remove</button>' +
+          '</div>' +
+          (isPending ? '<div class="sub" style="color:var(--warn);margin-top:4px;font-weight:600">\u26a0 Waiting for manager approval (credit limit exceeded)</div>' : '') +
+          (isRejected ? '<div class="sub" style="color:var(--due);margin-top:4px;font-weight:600">\u2716 Rejected by manager</div>' : '') +
+        '</div>';
+      });
+    }
+  }
+
+  var otherCredits = hasDuty ? (MY || []).filter(function(x){ return x.duty_id != DF.id; }) : (MY || []);
+  if(otherCredits.length){
+    h += '<h1 style="margin-top:28px;font-size:16px">' + (hasDuty ? 'Past credit sales' : 'My recent entries') + ' (' + otherCredits.length + ')</h1>';
+    otherCredits.slice(0, 15).forEach(function(x){
+      h += '<div class="cust" style="cursor:default;margin-top:8px;opacity:0.85">' +
+        '<div class="row"><b>' + esc(x.cname) + '</b><span class="amt" style="flex:none">' + inr(x.a) + '</span></div>' +
+        '<div class="sub">' + x.d + ' \u00b7 ' + esc(x.n) + (x.veh ? ' \u00b7 ' + esc(x.veh) : '') + (x.duty_id ? ' \u00b7 Duty #' + x.duty_id : '') + '</div>' +
+        (x.status == "pending" ? '<div class="sub" style="color:var(--warn)">Waiting for manager approval</div>' : x.status == "rejected" ? '<div class="sub" style="color:var(--due)">Rejected by manager</div>' : '') +
+      '</div>';
+    });
+  }
+  document.getElementById("app").innerHTML = h;
+}
+function dcust(){ dcustW(); }
+function dcustW(){
+  var custId = v("wc_cust") || v("d1"), c = CL.filter(function(x){ return String(x.id) == String(custId); })[0];
+  var vl = document.getElementById("wc_vl") || document.getElementById("vl");
+  var av = document.getElementById("wc_avail") || document.getElementById("d0");
+  if(vl) vl.innerHTML = (c && c.veh) ? c.veh.map(function(x){ return '<option value="' + esc(x) + '">'; }).join("") : "";
+  if(av) av.textContent = c ? ("Available credit limit: " + inr(c.available)) : "";
+}
+function calcWcPreview(){
+  var sel = document.getElementById("wc_fuel"), ltEl = document.getElementById("wc_litres"), amtEl = document.getElementById("wc_amt"), subEl = document.getElementById("wc_calc_sub");
+  if(!sel || !ltEl || !amtEl) return;
+  var opt = sel.options[sel.selectedIndex], rate = opt ? parseFloat(opt.getAttribute("data-rate") || 0) : 0, lt = parseFloat(ltEl.value || 0);
+  if(rate > 0 && lt > 0){
+    var calc = Math.round(lt * rate * 100) / 100;
+    amtEl.value = calc;
+    if(subEl) subEl.textContent = lt + " " + (opt.getAttribute("data-unit") || "L") + " \u00d7 \u20b9" + rate + " = " + inr(calc);
+  } else {
+    if(subEl && !opt.value) subEl.textContent = "";
+  }
+}
+function calcWcManualAmt(){
+  var subEl = document.getElementById("wc_calc_sub");
+  if(subEl) subEl.textContent = "";
+}
+function addWCreditSale(force){
+  var custId = v("wc_cust") || v("d1"), fu = v("wc_fuel") || v("d5"), lt = parseFloat(v("wc_litres") || v("d6") || 0), amt = parseFloat(v("wc_amt") || v("d4") || 0), veh = v("wc_veh") || v("d2"), note = v("wc_note") || v("d3");
+  var errEl = document.getElementById("wc_err") || document.getElementById("er");
+  var er = function(m){ if(errEl) errEl.textContent = m; else toast(m); };
+  if(!custId) return er("Please choose a customer.");
+  if(fu && !(lt > 0)) return er("Enter the quantity in litres.");
+  if(!fu && !note) return er("Enter the description of the item.");
+  if(!(amt > 0)) return er("Enter an amount above zero.");
+  var c = CL.filter(function(x){ return String(x.id) == String(custId); })[0];
+  var b = {
+    cust_id: custId,
+    fuel: fu || "",
+    litres: fu ? lt : "",
+    n: note || (fu && lt > 0 ? (fu + " " + lt + " L") : ""),
+    a: amt,
+    veh: veh || "",
+    duty_id: (DF && DF.id) ? DF.id : null,
+    force: !!force
+  };
+  var go = function(){
+    if(errEl) errEl.textContent = "";
+    api("POST", "/api/credit-sales", b).then(function(res){
+      toast("Credit sale recorded and linked to duty");
+      if(DF && DF.id){
+        api("PUT", "/api/duty/" + DF.id, dpay()).catch(function(){});
+      }
+      Promise.all([
+        api("GET", "/api/customers"),
+        api("GET", "/api/my-credit-sales"),
+        api("GET", "/api/duty/current")
+      ]).then(function(r){
+        CL = r[0] || [];
+        MY = r[1] || [];
+        WD = r[2] || {};
+        if(WD && WD.duty) syncDutyData(WD.duty, { modes: WD.modes, cats: WD.cats, items: WD.items });
+        renderCredit();
+      }).catch(function(){
+        renderCredit();
+      });
+    }).catch(function(e){
+      er(e.error || "Could not save credit sale. Check connection.");
+    });
+  };
+  if(c && amt > c.available && !force){
+    return ask("Amount (" + inr(amt) + ") exceeds available credit (" + inr(c.available) + "). It will be recorded as pending for manager approval. Continue?", go);
+  }
+  go();
+}
+function removeWCreditSale(id){
+  ask("Remove this credit sale from your duty?", function(){
+    api("DELETE", "/api/credit-sales/" + id).then(function(){
+      toast("Credit sale removed from duty");
+      Promise.all([
+        api("GET", "/api/customers"),
+        api("GET", "/api/my-credit-sales"),
+        api("GET", "/api/duty/current")
+      ]).then(function(r){
+        CL = r[0] || [];
+        MY = r[1] || [];
+        WD = r[2] || {};
+        if(WD && WD.duty) syncDutyData(WD.duty, { modes: WD.modes, cats: WD.cats, items: WD.items });
+        renderCredit();
+      }).catch(function(){
+        renderCredit();
+      });
+    }).catch(function(e){
+      toast(e.error || "Could not remove credit sale.");
+    });
+  });
+}
 function renderTeam(){document.getElementById("app").innerHTML=nav()+'<div class="empty">Loading team\u2026</div>';
 api("GET","/api/users").then(function(U){if(tab!="team")return;
 var h=nav()+'<h1>Team logins</h1>'+

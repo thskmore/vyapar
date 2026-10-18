@@ -54,6 +54,7 @@ export const creditSales = pgTable("credit_sales", {
   status: text("status").notNull().default("ok"),
   fuel: text("fuel"),
   litres: doublePrecision("litres"),
+  dutyId: integer("duty_id"),
 });
 
 export const audit = pgTable("audit", {
