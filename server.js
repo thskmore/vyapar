@@ -1,4 +1,5 @@
 "use strict";
+require("dotenv").config();
 const express = require("express");
 const { createDatabase } = require("./sqlite-compat");
 const bcrypt = require("bcryptjs");
@@ -1105,15 +1106,124 @@ app.post("/api/duties/:id/reopen", need("owner"), (q, s) => {
 // ---- Business day: manager closes, owner approves
 const validDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "");
 app.post("/api/days/:d/close", need("owner", "manager"), (q, s) => {
-  const pid = q.user.pump_id;
-  const d = q.params.d;
-  if (!validDay(d)) return s.status(400).json({ error: "Invalid date." });
-  if (dayStatus(d, pid) !== "open") return s.status(409).json({ error: "This day is already closed." });
-  const c = db.prepare("select sum(status='closed') done, sum(status<>'closed') wait from duties where pump_id=? and d=?").get(pid, d);
-  if (!c.done) return s.status(400).json({ error: "There are no closed duties on this date." });
-  if (c.wait) return s.status(400).json({ error: "Some duties on this date are still open or waiting to be closed." });
-  db.prepare("insert into days(pump_id,d,status,closed_by,closed_at) values(?,?,?,?,?) on conflict(pump_id,d) do update set status='closed', closed_by=excluded.closed_by, closed_at=excluded.closed_at, approved_by=null, approved_at=null").run(pid, d, "closed", q.user.id, now());
-  s.json({ ok: true });
+  try {
+    const pid = q.user.pump_id;
+    const d = q.params.d;
+    if (!validDay(d)) return s.status(400).json({ error: "Invalid date." });
+    if (dayStatus(d, pid) !== "open") return s.status(409).json({ error: "This day is already closed." });
+    const c = db.prepare("select sum(status='closed') done, sum(status<>'closed') wait from duties where pump_id=? and d=?").get(pid, d);
+    if (c && c.wait > 0) return s.status(400).json({ error: "Some duties on this date are still open or waiting to be closed. Please review and close them first." });
+
+    // 1. Mark day as closed in days table
+    db.prepare("insert into days(pump_id,d,status,closed_by,closed_at) values(?,?,?,?,?) on conflict(pump_id,d) do update set status='closed', closed_by=excluded.closed_by, closed_at=excluded.closed_at, approved_by=null, approved_at=null").run(pid, d, "closed", q.user.id, now());
+
+    // 2. Automate closing meter readings update for all nozzles from closed duties of this day
+    const dutyLines = db.prepare(`
+      select dl.nozzle_id, dl.opening, dl.closing, dl.testing, d.id duty_id,
+             coalesce(d.closed_at, d.submitted, d.started) t
+      from duty_lines dl
+      join duties d on d.id=dl.duty_id
+      where d.pump_id=? and d.d=? and d.status='closed'
+      order by coalesce(d.closed_at, d.submitted, d.started) asc, d.id asc
+    `).all(pid, d);
+
+    const dutyNozzleMap = {};
+    dutyLines.forEach((row) => {
+      const nid = String(row.nozzle_id);
+      if (!dutyNozzleMap[nid]) {
+        dutyNozzleMap[nid] = { nozzle_id: nid, closing: null, testing: 0 };
+      }
+      if (row.closing != null && !isNaN(+row.closing)) {
+        dutyNozzleMap[nid].closing = +row.closing; // latest duty in chronological sequence sets closing
+      }
+      if (row.testing != null && !isNaN(+row.testing)) {
+        dutyNozzleMap[nid].testing = r2(dutyNozzleMap[nid].testing + (+row.testing));
+      }
+    });
+
+    const st = stateNow(pid);
+    const activeNozzles = (st.nozzles || []).filter((n) => n.active !== false);
+    const finalNozzleMap = {};
+    const nowTs = now();
+
+    activeNozzles.forEach((noz) => {
+      const nid = String(noz.id);
+      let closingVal = null;
+      let testingVal = 0;
+
+      if (dutyNozzleMap[nid] && dutyNozzleMap[nid].closing != null) {
+        closingVal = dutyNozzleMap[nid].closing;
+        testingVal = dutyNozzleMap[nid].testing;
+      } else {
+        // Check existing meter reading entered for this date
+        const existing = db.prepare("select closing, testing from meter_readings where pump_id=? and nozzle_id=? and d=?").get(pid, nid, d);
+        if (existing && existing.closing != null && !isNaN(+existing.closing)) {
+          closingVal = +existing.closing;
+          testingVal = r2(+existing.testing || 0);
+        } else {
+          // Carry forward previous closing meter
+          const priorMr = db.prepare("select closing from meter_readings where pump_id=? and nozzle_id=? and d < ? order by d desc, id desc limit 1").get(pid, nid, d);
+          if (priorMr && priorMr.closing != null && !isNaN(+priorMr.closing)) {
+            closingVal = +priorMr.closing;
+          } else {
+            const priorDuty = db.prepare(`
+              select dl.closing from duty_lines dl
+              join duties d on d.id=dl.duty_id
+              where d.pump_id=? and dl.nozzle_id=? and d.d < ? and dl.closing is not null
+              order by d.d desc, d.id desc limit 1
+            `).get(pid, nid, d);
+            if (priorDuty && priorDuty.closing != null && !isNaN(+priorDuty.closing)) {
+              closingVal = +priorDuty.closing;
+            } else if (noz.open != null && !isNaN(+noz.open)) {
+              closingVal = +noz.open;
+            }
+          }
+          testingVal = 0;
+        }
+      }
+
+      if (closingVal != null) {
+        finalNozzleMap[nid] = { nozzle_id: nid, closing: closingVal, testing: testingVal };
+      }
+    });
+
+    const insMeter = db.prepare(`
+      insert into meter_readings(pump_id, d, nozzle_id, closing, testing, user_id, updated_at)
+      values(?, ?, ?, ?, ?, ?, ?)
+      on conflict(pump_id, d, nozzle_id) do update set
+        closing=excluded.closing,
+        testing=excluded.testing,
+        user_id=excluded.user_id,
+        updated_at=excluded.updated_at
+    `);
+
+    Object.values(finalNozzleMap).forEach((nm) => {
+      insMeter.run(pid, d, nm.nozzle_id, nm.closing, nm.testing, q.user.id, nowTs);
+    });
+
+    // 3. Sync nozzle opening meters in pump state for future shifts
+    let stateModified = false;
+    (st.nozzles || []).forEach((noz) => {
+      const nm = finalNozzleMap[String(noz.id)];
+      if (nm && nm.closing != null) {
+        noz.open = nm.closing;
+        stateModified = true;
+      }
+    });
+    if (stateModified) {
+      const setupObj = {};
+      (SECTIONS.setup || []).forEach((k) => {
+        if (st[k] !== undefined) setupObj[k] = st[k];
+      });
+      writeSection(pid, "setup", setupObj);
+    }
+
+    audit(q.user, "close_day", `Closed business day ${d}: automated closing meters and tank sales updated`);
+    s.json({ ok: true, automated_nozzles: Object.keys(finalNozzleMap).length });
+  } catch (err) {
+    console.error("Close day error:", err);
+    s.status(500).json({ error: err.message, stack: err.stack });
+  }
 });
 app.post("/api/days/:d/approve", need("owner"), (q, s) => {
   const pid = q.user.pump_id;
@@ -1467,51 +1577,175 @@ function fromChart(chart, dip) {
 }
 function tankChecks(pumpId = 1) {
   const st = stateNow(pumpId), tanks = st.tanks || [], dv = st.deliv || [], tankOf = {};
-  (st.nozzles || []).forEach((n) => (tankOf[String(n.id)] = String(n.tank_id || "")));
-  const sales = db.prepare(`
-    select coalesce(d.submitted, d.closed_at, d.started) t, dl.nozzle_id n,
+  (st.nozzles || []).forEach((n) => {
+    let tid = String(n.tank_id || "");
+    if (!tid) {
+      const matchTk = tanks.find((t) => t.fuel === n.fuel);
+      if (matchTk) tid = String(matchTk.id);
+    }
+    tankOf[String(n.id)] = tid;
+  });
+
+  const dutyLines = db.prepare(`
+    select d.d, coalesce(d.closed_at, d.submitted, d.started) t, dl.nozzle_id n,
            (case when dl.closing is not null and dl.opening is not null and dl.closing >= dl.opening then dl.closing - dl.opening else 0 end) gross,
            coalesce(dl.testing, 0) testing
     from duty_lines dl
     join duties d on d.id=dl.duty_id
     where d.pump_id=? and d.status in ('submitted','closed')
   `).all(pumpId);
-  const dips = db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id where di.pump_id=? order by di.t, di.id").all(pumpId);
 
-  const getSales = (tid, a, b) => {
-    let gross = 0, testing = 0;
-    sales.filter((x) => tankOf[x.n] === tid && x.t >= a && (b ? x.t < b : true)).forEach((x) => {
-      gross += x.gross;
-      testing += x.testing;
-    });
-    gross = r2(gross);
-    testing = r2(testing);
-    const net = r2(gross - testing);
-    return { gross, testing, net };
-  };
+  const meterRows = db.prepare("select * from meter_readings where pump_id=? order by d asc, id asc").all(pumpId);
+  const dips = db.prepare("select di.*, u.name by_name from dips di join users u on u.id=di.user_id where di.pump_id=? order by di.t asc, di.id asc").all(pumpId);
+  const closedDays = new Set(
+    db.prepare("select d from days where pump_id=? and status in ('closed', 'approved')").all(pumpId).map((x) => x.d)
+  );
 
-  const recv = (tid, a, b) => r2(dv.reduce((s, d) => {
-    const dTs = Math.floor(d.ts / 1000);
-    const match = dTs >= a && (b ? dTs < b : true);
-    return s + (match ? (d.lines || []).filter((l) => String(l.tank_id) === tid).reduce((q, l) => q + (+l.litres || 0), 0) : 0);
-  }, 0));
+  const dutyByDateNoz = {};
+  dutyLines.forEach((s) => {
+    if (!s.d || !s.n) return;
+    const k = s.d + "_" + String(s.n);
+    if (!dutyByDateNoz[k]) {
+      dutyByDateNoz[k] = { gross: 0, testing: 0, net: 0, t: s.t };
+    }
+    dutyByDateNoz[k].gross = r2(dutyByDateNoz[k].gross + s.gross);
+    dutyByDateNoz[k].testing = r2(dutyByDateNoz[k].testing + s.testing);
+    dutyByDateNoz[k].net = r2(dutyByDateNoz[k].net + (s.gross - s.testing));
+    if (s.t > (dutyByDateNoz[k].t || 0)) dutyByDateNoz[k].t = s.t;
+  });
+
+  const meterByDateNoz = {};
+  meterRows.forEach((mr) => {
+    if (!mr.d || !mr.nozzle_id) return;
+    meterByDateNoz[mr.d + "_" + String(mr.nozzle_id)] = mr;
+  });
+
+  function getPriorClosing(nid, beforeDate) {
+    const priorMr = db.prepare(`
+      select closing from meter_readings
+      where pump_id=? and nozzle_id=? and d < ?
+      order by d desc, id desc limit 1
+    `).get(pumpId, nid, beforeDate);
+    if (priorMr && priorMr.closing != null && !isNaN(+priorMr.closing)) {
+      return +priorMr.closing;
+    }
+    const priorDuty = db.prepare(`
+      select dl.closing from duty_lines dl
+      join duties d on d.id=dl.duty_id
+      where d.pump_id=? and dl.nozzle_id=? and d.d < ? and dl.closing is not null
+      order by d.d desc, d.id desc limit 1
+    `).get(pumpId, nid, beforeDate);
+    if (priorDuty && priorDuty.closing != null && !isNaN(+priorDuty.closing)) {
+      return +priorDuty.closing;
+    }
+    const noz = (st.nozzles || []).find((n) => String(n.id) === nid);
+    if (noz && noz.open != null && !isNaN(+noz.open)) {
+      return +noz.open;
+    }
+    return null;
+  }
 
   return tanks.map((tk) => {
-    const tid = String(tk.id), ds = dips.filter((x) => x.tank_id === tid), checks = [];
+    const tid = String(tk.id);
+    const ds = dips.filter((x) => String(x.tank_id) === tid);
+
+    // Map dips by date
+    const dipsByDate = {};
+    ds.forEach((di) => {
+      const dDate = new Date(di.t * 1000 - 6 * 3600e3).toLocaleDateString("en-CA", { timeZone: TZ });
+      dipsByDate[dDate] = di;
+    });
+
+    // Map deliveries by date for this tank
+    const delivByDate = {};
+    dv.forEach((dlv) => {
+      const dLitres = (dlv.lines || [])
+        .filter((l) => String(l.tank_id) === tid)
+        .reduce((sum, l) => sum + (+l.litres || 0), 0);
+      if (dLitres > 0) {
+        delivByDate[dlv.d] = r2((delivByDate[dlv.d] || 0) + dLitres);
+      }
+    });
+
+    // Find all nozzles attached to this tank
+    const myNozzles = (st.nozzles || []).filter((n) => tankOf[String(n.id)] === tid);
+
+    // Collect all dates that have activity for this tank's nozzles
+    const activeDatesForTank = new Set();
+    dutyLines.forEach((s) => {
+      if (tankOf[String(s.n)] === tid && s.d) activeDatesForTank.add(s.d);
+    });
+    meterRows.forEach((mr) => {
+      if (tankOf[String(mr.nozzle_id)] === tid && mr.d) activeDatesForTank.add(mr.d);
+    });
+    closedDays.forEach((cd) => activeDatesForTank.add(cd));
+
+    // Calculate Sales by Date across ALL nozzles of this tank
+    const salesByDate = {};
+    activeDatesForTank.forEach((dStr) => {
+      let gTot = 0, tTot = 0, nTot = 0, maxT = 0;
+      myNozzles.forEach((noz) => {
+        const nid = String(noz.id);
+        const dk = dStr + "_" + nid;
+        if (dutyByDateNoz[dk]) {
+          const dsRow = dutyByDateNoz[dk];
+          gTot = r2(gTot + dsRow.gross);
+          tTot = r2(tTot + dsRow.testing);
+          nTot = r2(nTot + dsRow.net);
+          if (dsRow.t > maxT) maxT = dsRow.t;
+        } else if (meterByDateNoz[dk]) {
+          const mr = meterByDateNoz[dk];
+          const prev = getPriorClosing(nid, dStr);
+          if (mr.closing != null && prev != null && mr.closing >= prev) {
+            const g = r2(mr.closing - prev);
+            const tst = r2(mr.testing || 0);
+            const n = r2(g - tst);
+            gTot = r2(gTot + g);
+            tTot = r2(tTot + tst);
+            nTot = r2(nTot + n);
+            if (mr.updated_at > maxT) maxT = mr.updated_at;
+          }
+        }
+      });
+      if (gTot > 0 || tTot > 0 || nTot > 0 || closedDays.has(dStr)) {
+        salesByDate[dStr] = {
+          gross: gTot,
+          testing: tTot,
+          net: nTot,
+          t: maxT || Math.floor(new Date(dStr + "T23:59:59+05:30").getTime() / 1000)
+        };
+      }
+    });
+
+    const allDatesSet = new Set([
+      ...Object.keys(dipsByDate),
+      ...Object.keys(delivByDate),
+      ...Object.keys(salesByDate),
+      ...Array.from(closedDays)
+    ]);
+
+    const sortedDates = Array.from(allDatesSet).sort();
+    const checks = [];
+    let runningBookStock = ds.length > 0 ? ds[0].litres : 0;
     let cumSales = 0, cumVar = 0, currentMonth = null;
-    for (let i = 0; i < ds.length; i++) {
-      const p = ds[i];
-      const c = ds[i + 1] || null;
-      // Dip reading p is the Opening Stock for its respective business date
-      const dDate = new Date(p.t * 1000 - 6 * 3600e3).toLocaleDateString("en-CA", { timeZone: TZ });
-      const toTime = c ? c.t : null;
-      const sm = getSales(tid, p.t, toTime);
-      const re = recv(tid, p.t, toTime);
-      const totStock = r2(p.litres + re);
-      const sales_by_dip = c ? r2(totStock - c.litres) : null;
-      const diff = sales_by_dip != null ? r2(sm.net - sales_by_dip) : null;
-      const exp = r2(totStock - sm.net);
-      const variance = c ? r2(c.litres - exp) : null;
+
+    for (let i = 0; i < sortedDates.length; i++) {
+      const dDate = sortedDates[i];
+      const nextDate = sortedDates[i + 1] || null;
+
+      const dip = dipsByDate[dDate] || null;
+      const nextDip = nextDate ? (dipsByDate[nextDate] || null) : null;
+
+      let opening = dip ? dip.litres : runningBookStock;
+      const opening_dip = dip ? dip.dip : null;
+
+      const received = delivByDate[dDate] || 0;
+      const totStock = r2(opening + received);
+
+      const sm = salesByDate[dDate] || { gross: 0, testing: 0, net: 0 };
+      const meter_sales = sm.gross;
+      const pump_test = sm.testing;
+      const net_meter_sales = sm.net;
 
       const monthKey = dDate.slice(0, 7);
       if (currentMonth !== monthKey) {
@@ -1519,48 +1753,60 @@ function tankChecks(pumpId = 1) {
         cumSales = 0;
         cumVar = 0;
       }
-      cumSales = r2(cumSales + sm.net);
+      cumSales = r2(cumSales + net_meter_sales);
+
+      const actual = nextDip ? nextDip.litres : null;
+      const closing_dip = nextDip ? nextDip.dip : null;
+      const sales_by_dip = actual != null ? r2(totStock - actual) : null;
+      const diff = sales_by_dip != null ? r2(net_meter_sales - sales_by_dip) : null;
       if (diff != null) {
         cumVar = r2(cumVar + diff);
       }
+
+      const expected = r2(totStock - net_meter_sales);
+      const variance = actual != null ? r2(actual - expected) : null;
+
+      runningBookStock = actual != null ? actual : expected;
       const fRate = fuelRateFor(st, tk.fuel, dDate) ?? fuelRateFor(st, tk.fuel, bizDate());
+
       checks.push({
-        id: p.id,
+        id: dip ? dip.id : -1000 - i,
         d: dDate,
-        from: p.t,
-        to: c ? c.t : null,
+        from: dip ? dip.t : Math.floor(new Date(dDate + "T06:00:00+05:30").getTime() / 1000),
+        to: nextDip ? nextDip.t : null,
         rate: fRate,
-        opening: p.litres,
-        opening_dip: p.dip,
-        received: re,
+        opening,
+        opening_dip,
+        received,
         total_stock: totStock,
-        meter_sales: sm.gross,
-        pump_test: sm.testing,
-        net_meter_sales: sm.net,
+        meter_sales,
+        pump_test,
+        net_meter_sales,
         cumulative_sales: cumSales,
-        sold: sm.net,
-        actual: c ? c.litres : null,
-        closing_dip: c ? c.dip : null,
-        sales_by_dip: sales_by_dip,
-        diff: diff,
+        sold: net_meter_sales,
+        actual,
+        closing_dip,
+        sales_by_dip,
+        diff,
         cumulative_variation: diff != null ? cumVar : null,
-        expected: exp,
-        variance: variance,
-        note: p.note || "",
-        by: p.by_name,
-        is_latest: !c
+        expected,
+        variance,
+        note: dip ? (dip.note || "") : "",
+        by: dip ? dip.by_name : (closedDays.has(dDate) ? "Day Closed (Auto)" : "Meter Duty"),
+        is_latest: i === sortedDates.length - 1
       });
     }
-    const last = ds[ds.length - 1] || null;
-    const sinceSales = last ? getSales(tid, last.t, null) : { net: 0 };
-    const book = last ? r2(last.litres + recv(tid, last.t, null) - sinceSales.net) : null;
+
+    const lastDip = ds[ds.length - 1] || null;
+    const book = r2(runningBookStock);
+
     return {
       id: tk.id,
       name: tk.name,
       fuel: tk.fuel,
       rate: fuelRateFor(st, tk.fuel, bizDate()),
       capacity: tk.capacity || 0,
-      last: last ? { id: last.id, litres: last.litres, dip: last.dip, t: last.t, by: last.by_name } : null,
+      last: lastDip ? { id: lastDip.id, litres: lastDip.litres, dip: lastDip.dip, t: lastDip.t, by: lastDip.by_name } : null,
       book,
       checks: checks.slice(-365).reverse()
     };
@@ -1571,7 +1817,7 @@ app.get("/api/tanks", need(), (q, s) => {
   const st = stateNow(pid), names = {};
   (st.tanks || []).forEach((t) => (names[String(t.id)] = t.name));
   const mine = db.prepare("select id,tank_id,litres,dip,dens_obs,temp,d15,note,t from dips where pump_id=? and user_id=? order by id desc limit 10").all(pid, q.user.id).map((d) => ({ ...d, tank: names[d.tank_id] || "Tank" }));
-  s.json({ tanks: (st.tanks || []).map((t) => ({ id: t.id, name: t.name, fuel: t.fuel, capacity: t.capacity || 0 })), mine });
+  s.json({ tanks: (st.tanks || []).map((t) => ({ id: t.id, name: t.name, fuel: t.fuel, capacity: t.capacity || 0, chart: t.chart || [] })), mine });
 });
 app.post("/api/dips", need(), (q, s) => {
   const pid = q.user.pump_id;
@@ -1797,6 +2043,73 @@ app.get("/api/density-register", need("owner", "manager"), (q, s) => {
 app.post("/api/density-register", need("owner", "manager"), (q, s) => {
   const pid = q.user.pump_id;
   const b = q.body || {};
+
+  // Batch insertion for multi-tank morning density
+  if (Array.isArray(b.readings)) {
+    if (!b.readings.length) return s.status(400).json({ error: "No tank density readings provided." });
+    const d = String(b.d || b.date || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return s.status(400).json({ error: "Please enter a valid date (YYYY-MM-DD)." });
+
+    const num = (x) => (x === "" || x === undefined || x === null || Number.isNaN(+x) ? null : +x);
+    const normDens = (v) => {
+      if (v == null) return null;
+      return v < 2 ? r2(v * 1000) : r2(v);
+    };
+
+    const t = Math.floor(new Date(d + "T08:00:00").getTime() / 1000);
+    const processed = [];
+
+    try {
+      const tx = db.transaction(() => {
+        for (const item of b.readings) {
+          const tid = String(item.tank_id || "").trim();
+          if (!tid) continue;
+
+          const m_obs = normDens(num(item.m_obs));
+          const m_temp = num(item.m_temp);
+          let m_d15 = normDens(num(item.m_d15));
+
+          if (m_d15 == null && m_obs != null && m_temp != null) {
+            m_d15 = r2(m_obs + (m_temp - 15) * 0.89);
+          }
+
+          if (m_obs == null && m_d15 == null) continue;
+
+          const existing = db.prepare("select * from density_register where pump_id=? and tank_id=? and d=? order by id desc limit 1").get(pid, tid, d);
+          if (existing) {
+            const final_m_obs = m_obs !== null ? m_obs : existing.m_obs;
+            const final_m_temp = m_temp !== null ? m_temp : existing.m_temp;
+            const final_m_d15 = m_d15 !== null ? m_d15 : existing.m_d15;
+            db.prepare(`
+              update density_register set
+                m_obs = ?,
+                m_temp = ?,
+                m_d15 = ?,
+                user_id = ?,
+                by_name = ?
+              where id = ? and pump_id = ?
+            `).run(final_m_obs, final_m_temp, final_m_d15, q.user.id, q.user.name, existing.id, pid);
+            processed.push({ id: existing.id, tank_id: tid, updated: true });
+          } else {
+            const ins = db.prepare(`
+              insert into density_register(pump_id, tank_id, d, t, m_obs, m_temp, m_d15, user_id, by_name)
+              values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(pid, tid, d, t, m_obs, m_temp, m_d15, q.user.id, q.user.name);
+            processed.push({ id: ins.lastInsertRowid, tank_id: tid, created: true });
+          }
+        }
+      });
+      tx();
+    } catch (err) {
+      return s.status(400).json({ error: err.message || "Could not save morning density readings." });
+    }
+
+    if (!processed.length) return s.status(400).json({ error: "Please enter observed density for at least one tank." });
+
+    audit(q.user, "add_morning_densities_batch", `Recorded morning densities for ${processed.length} tanks on ${d}`);
+    return s.json({ ok: true, count: processed.length, entries: processed });
+  }
+
   const tid = String(b.tank_id || "").trim();
   if (!tid) return s.status(400).json({ error: "Please select a tank." });
   const d = String(b.d || "").trim();

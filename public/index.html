@@ -776,6 +776,8 @@ function due(c){return c.e.reduce(function(s,x){return s+(x.t=="sale"?x.a:-x.a)}
 function inr(n){return "₹"+Math.round(n).toLocaleString("en-IN")}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function today(){return new Date().toISOString().slice(0,10)}
+function bizToday(){return new Date(Date.now()-216e5).toLocaleDateString("en-CA")}
+function bizDate(){return (typeof DD!=="undefined"&&DD)?DD:bizToday()}
 function find(id){return S.c.filter(function(c){return c.id==id})[0]}
 function render(){if(tab=="cashflow")return renderCashflow();if(tab=="inv")return renderInv();if(tab=="stock")return renderStock();if(tab=="sup")return renderSup();if(tab=="book")return renderBook();if(tab=="rep")return renderRep();if(tab=="bak")return renderBak();if(tab=="team")return renderTeam();if(tab=="credit")return renderCredit();if(tab=="duty")return renderDutyTab();if(tab=="tanks")return renderTanks();if(tab=="wdip")return loadDip();if(tab=="pay")return renderSalary();if(tab=="setup")return renderSetup();if(tab=="veh")return renderVeh();if(tab=="short")return renderShort();if(tab=="mypay")return loadMyPay();if(tab=="wduty")return loadW();var h="";
 if(!view){var tot=S.c.reduce(function(s,c){return s+due(c)},0),q=(document.getElementById("q")||{}).value||"";
@@ -1303,8 +1305,9 @@ if(!r.day.length)h+='<tr><td colspan="6" class="empty">No submitted duties on th
 else h+='<tr><td><b>Day total</b></td><td class="r"><b>'+Math.round(T.l*100)/100+'</b></td><td class="r"><b>'+inr(T.s)+'</b></td><td class="r"><b>'+inr(T.k)+'</b></td><td class="r"><b>'+sgn(T.d)+'</b></td><td></td></tr>';
 h+='</table></div>';
 A.innerHTML=h}).catch(function(e){badge(e.error||"Could not load duties.")})}
-function dayAct(a){api("POST","/api/days/"+DD+"/"+a).then(function(){renderDutyTab()}).catch(function(e){toast(e.error||"Could not update the day.")})}
-function dayAsk(a){ask("Close the business day "+DD+"? It then goes to the owner for approval, and no more duties can be added to it.",function(){dayAct(a)})}
+function dayAct(a){api("POST","/api/days/"+DD+"/"+a).then(function(){if(a==="close")toast("Day "+DD+" closed! Automated closing meters & tank sales updated.");renderDutyTab()}).catch(function(e){toast(e.error||"Could not update the day.")})}
+function dayAsk(a){ask("Close the business day "+DD+"?\n\nThis will automatically calculate closing meter readings for all nozzles and update Sales by Meter for all tanks in the DSR register.",function(){dayAct(a)})}
+function closeDayFromDsr(d){d=d||bizDate();ask("Close business day "+d+"?\n\nThis will automatically calculate closing meter readings for all nozzles and update Sales by Meter for all tanks in the DSR register.",function(){api("POST","/api/days/"+d+"/close").then(function(){toast("Day "+d+" closed! Automated closing meters & all tanks Sales by Meter updated.");renderTanks()}).catch(function(e){toast(e.error||"Could not close day.")})})}
 function cancelDuty(id){ask("Cancel this duty? The nozzles become free again.",function(){api("DELETE","/api/duties/"+id).then(renderDutyTab).catch(function(e){toast(e.error||"Could not cancel.")})})}
 function assignForm(){api("GET","/api/assign-info").then(function(r){
 if(!r.workers.length)return toast("Add a worker in the Team tab first.");
@@ -1575,7 +1578,7 @@ function modeAdd(){var nm=v("nm");if(!nm)return er("Enter a name.");var l=allMod
 function custTog(id){var c=find(id);c.active=c.active===false;save();renderSetup()}
 var TK = null, DIP_NOTES = {}, DENS_FILTER = { tank_id: "" };
 var TANK_VIEW = "stock"; // "stock" | "dens" | "overview" | "meter"
-var LAST_METER_DATA = null, METER_FORM_STATE = null;
+var LAST_METER_DATA = null, METER_FORM_STATE = null, LAST_DREG_DATA = null;
 var TANK_PRODUCT = ""; // Fuel name (e.g. "Petrol (MS)", "Diesel (HSD)")
 var TANK_MONTH = today().slice(0, 7);
 var TANK_FROM = "";
@@ -1676,9 +1679,15 @@ function renderTanks() {
   if (!TANK_MONTH) TANK_MONTH = today().slice(0, 7);
   setTankMonth(TANK_MONTH);
 
-  Promise.all([api("GET", "/api/stock-check"), api("GET", "/api/density-register"), api("GET", "/api/meters?month=" + encodeURIComponent(TANK_MONTH))]).then(function(RR) {
-    var T = RR[0], DREG = RR[1], METER_RES = RR[2];
+  Promise.all([
+    api("GET", "/api/stock-check"),
+    api("GET", "/api/density-register"),
+    api("GET", "/api/meters?month=" + encodeURIComponent(TANK_MONTH)),
+    api("GET", "/api/day-report?d=" + encodeURIComponent(bizDate())).catch(function() { return null; })
+  ]).then(function(RR) {
+    var T = RR[0], DREG = RR[1], METER_RES = RR[2], DAY_REPORT = RR[3];
     LAST_METER_DATA = METER_RES;
+    LAST_DREG_DATA = DREG;
     if (tab != "tanks") return;
 
     var tanksList = (DREG && DREG.tanks && DREG.tanks.length) ? DREG.tanks : ((T && T.length) ? T : (S.tanks || []));
@@ -1726,12 +1735,20 @@ function renderTanks() {
         '<h1 style="font-size:22px;font-weight:800;color:var(--ink);letter-spacing:-0.5px;margin:0">DSR & Density</h1>' +
         '<div class="sub" style="margin-top:3px">Statutory stock audit, meter vs dip variation, and daily 15&deg;C density decantation register</div>' +
       '</div>' +
-      '<div class="btns noprint" style="margin:0">' +
+      '<div class="btns noprint" style="margin:0;align-items:center">' +
         (isMeterActive ? '<button onclick="meterReadingForm()" style="font-weight:700">+ Add Meter Reading</button><button class="ghost" onclick="exportMeterCsv()" style="font-weight:700">⬇ Export CSV</button>' : '') +
         (!isMeterActive ? '<button onclick="morningDensityForm()">+ Morning Density</button>' : '') +
         (!isMeterActive ? '<button onclick="tankerDecantForm()">+ Tanker Decantation</button>' : '') +
         (!isMeterActive ? '<button onclick="dipForm()">+ Add Dip Reading</button>' : '') +
         (!isMeterActive ? '<button onclick="delivForm()">+ Fuel Delivery</button>' : '') +
+        ((ME && (ME.role === 'owner' || ME.role === 'manager')) ? (
+          (DAY_REPORT && DAY_REPORT.day && DAY_REPORT.day.status === 'open') ?
+            '<button style="background:var(--ok);color:#fff;font-weight:700;display:inline-flex;align-items:center;gap:5px" onclick="closeDayFromDsr(\'' + esc(bizDate()) + '\')">🔒 Close Day</button>' :
+          (DAY_REPORT && DAY_REPORT.day && DAY_REPORT.day.status === 'closed') ?
+            '<span style="background:rgba(245,158,11,0.12);color:var(--warn);padding:6px 12px;border-radius:6px;font-size:12px;font-weight:800;display:inline-flex;align-items:center;gap:4px">🔒 Day Closed</span>' :
+          (DAY_REPORT && DAY_REPORT.day && DAY_REPORT.day.status === 'approved') ?
+            '<span style="background:rgba(16,185,129,0.12);color:var(--ok);padding:6px 12px;border-radius:6px;font-size:12px;font-weight:800;display:inline-flex;align-items:center;gap:4px">✓ Day Approved</span>' : ''
+        ) : '') +
         '<button class="ghost" onclick="tankForm()">Tanks Setup</button>' +
         '<button class="ghost" onclick="window.print()" style="display:inline-flex;align-items:center;gap:5px">🖨️ Print Register</button>' +
       '</div>' +
@@ -1820,7 +1837,7 @@ function renderTanks() {
         pTanks.forEach(function(t) {
           var allChecks = t.checks || [];
           var byMonthSales = {}, byMonthVar = {};
-          var ascChecks = allChecks.slice().sort(function(a, b) { return a.to - b.to; });
+          var ascChecks = allChecks.slice().sort(function(a, b) { return a.d > b.d ? 1 : a.d < b.d ? -1 : (a.from || 0) - (b.from || 0); });
           ascChecks.forEach(function(c) {
             var mKey = (c.d ? c.d.slice(0, 7) : new Date(c.to * 1000 - 216e5).toLocaleDateString("en-CA").slice(0, 7));
             var nSales = (c.net_meter_sales != null ? c.net_meter_sales : (c.sold || 0));
@@ -2305,11 +2322,176 @@ function delDip(id){ask("Delete this dip reading? The stock checks will be recal
 function editRemark(id){var cur=DIP_NOTES[id]||"";openM('<h2>Stock check remark</h2><div class="sub">Add or update remark for this dip reading interval.</div><label>Remark / Note<input id="rem_val" value="'+esc(cur)+'" placeholder="e.g. Tanker delivery, calibration, temperature shift" maxlength="200"></label><div class="err" id="er"></div><div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveRemark('+id+')">Save remark</button></div>');setTimeout(function(){var el=document.getElementById("rem_val");if(el)el.focus()},100)}
 function saveRemark(id){var note=v("rem_val");api("PUT","/api/dips/"+id+"/note",{note:note}).then(function(){close();renderTanks()}).catch(function(e){er(e.error||"Could not save remark.")})}
 function loadDip(){api("GET","/api/tanks").then(function(r){TK=r;renderWDip()}).catch(function(e){document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>'})}
-function renderWDip(){var h=ubar()+wnav()+'<h1>Tank dip reading</h1>';
-if(!TK.tanks.length)h+='<div class="empty">No tanks are set up yet. Ask the manager.</div>';else h+=dipFields(TK.tanks)+'<button style="width:100%;margin-top:12px" onclick="postDip(loadDip)">Save reading</button>';
-h+='<h1 style="margin-top:22px">My recent readings</h1>';if(!TK.mine.length)h+='<div class="empty">No readings yet.</div>';
-TK.mine.forEach(function(d){h+='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(d.tank)+'</b><span class="amt" style="flex:none">'+lt(d.litres)+'</span></div><div class="sub">'+tdate(d.t)+(d.dip!=null?' \u00b7 Dip '+d.dip:'')+(d.d15!=null?' \u00b7 Density@15 '+d.d15:d.dens_obs!=null?' \u00b7 Density '+d.dens_obs:'')+(d.note?' \u00b7 '+esc(d.note):'')+'</div></div>'});
-document.getElementById("app").innerHTML=h}
+
+function onWorkerDipCmInput(tankId) {
+  var t = (TK.tanks || []).filter(function(x) { return x.id == tankId; })[0];
+  if (!t) return;
+  var dipEl = document.getElementById("w_tdip_" + tankId);
+  var litEl = document.getElementById("w_tlit_" + tankId);
+  var hintEl = document.getElementById("w_tchart_hint_" + tankId);
+  if (!dipEl || !litEl) return;
+
+  var val = dipEl.value.trim();
+  if (val === "" || isNaN(+val)) {
+    calcWorkerDipSummary();
+    return;
+  }
+
+  var cm = parseFloat(val);
+  if (t.chart && t.chart.length > 1) {
+    var calcL = dipFromChart(t.chart, cm);
+    if (calcL != null) {
+      litEl.value = calcL;
+      if (hintEl) hintEl.innerHTML = '<span style="color:var(--ok,#16A34A);font-weight:700">✓ Chart: ' + lt(calcL) + '</span>';
+    } else {
+      if (hintEl) hintEl.innerHTML = '<span style="color:var(--warn,#D97706)">Outside chart range (' + t.chart[0].cm + ' &ndash; ' + t.chart[t.chart.length - 1].cm + ' cm)</span>';
+    }
+  }
+  calcWorkerDipSummary();
+}
+
+function calcWorkerDipSummary() {
+  var sum = 0, count = 0;
+  (TK.tanks || []).forEach(function(t) {
+    var litEl = document.getElementById("w_tlit_" + t.id);
+    var dipEl = document.getElementById("w_tdip_" + t.id);
+    var warnEl = document.getElementById("w_tlit_warn_" + t.id);
+    var valStr = litEl ? litEl.value.trim() : "";
+    var dipStr = dipEl ? dipEl.value.trim() : "";
+
+    if (valStr !== "" && !isNaN(+valStr) && +valStr >= 0) {
+      var l = parseFloat(valStr);
+      sum += l;
+      count++;
+      if (warnEl) {
+        if (t.capacity && l > t.capacity) {
+          warnEl.innerHTML = '<span style="color:var(--due,#DC2626);font-weight:700">⚠️ Exceeds capacity (' + lt(t.capacity) + ')</span>';
+        } else {
+          warnEl.innerHTML = '<span style="color:var(--ok,#16A34A)">' + lt(l) + '</span>';
+        }
+      }
+    } else if (dipStr !== "" && !isNaN(+dipStr) && +dipStr >= 0) {
+      count++;
+    } else {
+      if (warnEl) warnEl.innerHTML = '<span style="color:var(--mute)">Direct volume override</span>';
+    }
+  });
+
+  var bar = document.getElementById("w_dip_summary_bar");
+  if (bar) {
+    bar.innerHTML = '<div>Total Physical Stock: <b style="font-size:15px;color:var(--ink)">' + (Math.round(sum * 10) / 10).toLocaleString("en-IN") + ' L</b> <span style="font-size:12px;color:var(--mute)">(' + count + ' of ' + (TK.tanks || []).length + ' tanks entered)</span></div>';
+  }
+}
+
+function saveWorkerDips() {
+  var readings = [];
+  var dVal = (document.getElementById("wdip_date") && document.getElementById("wdip_date").value) || today();
+  var errEl = document.getElementById("w_er");
+  if (errEl) errEl.innerHTML = "";
+
+  var hasCapacityError = false;
+
+  (TK.tanks || []).forEach(function(t) {
+    var dipEl = document.getElementById("w_tdip_" + t.id);
+    var litEl = document.getElementById("w_tlit_" + t.id);
+    var dipStr = dipEl ? dipEl.value.trim() : "";
+    var litStr = litEl ? litEl.value.trim() : "";
+
+    if (dipStr !== "" || litStr !== "") {
+      var dipNum = dipStr !== "" && !isNaN(+dipStr) ? parseFloat(dipStr) : null;
+      var litNum = litStr !== "" && !isNaN(+litStr) ? parseFloat(litStr) : null;
+
+      if (litNum == null && dipNum != null && t.chart && t.chart.length > 1) {
+        litNum = dipFromChart(t.chart, dipNum);
+      }
+
+      if (litNum == null && dipNum == null) return;
+
+      if (litNum != null && t.capacity && litNum > t.capacity * 1.05) {
+        hasCapacityError = true;
+        if (errEl) errEl.innerHTML = esc(t.name) + ": Litres (" + lt(litNum) + ") exceed tank capacity (" + lt(t.capacity) + ").";
+        return;
+      }
+
+      readings.push({
+        tank_id: t.id,
+        dip: dipNum,
+        litres: litNum
+      });
+    }
+  });
+
+  if (hasCapacityError) return;
+  if (!readings.length) {
+    if (errEl) errEl.innerHTML = "Please enter a dip reading or litres for at least one tank.";
+    return;
+  }
+
+  api("POST", "/api/dips", {
+    date: dVal,
+    readings: readings
+  }).then(function() {
+    toast("Saved dip readings for " + readings.length + " tank(s).");
+    loadDip();
+  }).catch(function(e) {
+    if (errEl) errEl.innerHTML = esc(e.error || "Could not save dip readings.");
+  });
+}
+
+function renderWDip(){
+  var h=ubar()+wnav()+'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
+    '<div><h1 style="margin:0">Tank Dip Reading</h1><div class="sub">Record physical dip level or litres for underground storage tanks</div></div>' +
+  '</div>';
+
+  if(!TK.tanks.length) {
+    h+='<div class="empty">No tanks are set up yet. Ask the manager.</div>';
+  } else {
+    h += '<div style="margin:10px 0 14px;background:var(--card);padding:10px 14px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">' +
+      '<label style="margin:0;font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:10px">Reading Date:' +
+        '<input id="wdip_date" type="date" value="' + today() + '" style="padding:6px 10px;font-size:13px;font-weight:600;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)">' +
+      '</label>' +
+      '<span style="font-size:12px;color:var(--mute)">Recorded for this business day</span>' +
+    '</div>';
+
+    TK.tanks.forEach(function(t) {
+      var hasChart = t.chart && t.chart.length > 1;
+      var fuelBadge = (t.fuel.toLowerCase().indexOf('petrol') >= 0 || t.fuel.toLowerCase().indexOf('ms') >= 0) ? '⛽ ' + esc(t.fuel) : '🛢️ ' + esc(t.fuel);
+      h += '<div style="margin-bottom:12px;padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">' +
+          '<div>' +
+            '<b style="font-size:15px;color:var(--ink)">' + esc(t.name) + '</b>' +
+            '<span style="margin-left:8px;font-size:11.5px;font-weight:700;background:rgba(37,99,235,0.08);color:var(--btn,#2563EB);padding:2px 8px;border-radius:10px">' + fuelBadge + '</span>' +
+            (t.capacity ? '<span style="margin-left:6px;font-size:11.5px;color:var(--mute)">Capacity: ' + lt(t.capacity) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:flex-start">' +
+          '<div>' +
+            '<label style="font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:3px">Dip Reading (cm)' +
+              '<input id="w_tdip_' + t.id + '" inputmode="decimal" placeholder="e.g. 145.2" oninput="onWorkerDipCmInput(' + t.id + ')" style="font-weight:700;font-size:14px">' +
+            '</label>' +
+            (hasChart ? '<div id="w_tchart_hint_' + t.id + '" style="font-size:11px;color:var(--ok,#16A34A);margin-top:2px">✓ Auto-calculates from chart</div>' : '<div style="font-size:11px;color:var(--mute);margin-top:2px">Enter litres directly</div>') +
+          '</div>' +
+          '<div>' +
+            '<label style="font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:3px">Litres (Volume)' +
+              '<input id="w_tlit_' + t.id + '" inputmode="decimal" placeholder="' + (t.capacity ? 'Max ' + t.capacity : 'e.g. 14250') + '" oninput="calcWorkerDipSummary()" style="font-weight:700;font-size:14px">' +
+            '</label>' +
+            '<div id="w_tlit_warn_' + t.id + '" style="font-size:11px;color:var(--mute);margin-top:2px">Direct volume override</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    });
+
+    h += '<div id="w_dip_summary_bar" style="margin-top:10px;padding:10px 14px;background:rgba(37,99,235,0.06);border:1px solid rgba(37,99,235,0.2);border-radius:8px;font-size:13px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<div>Total Physical Stock: <b style="font-size:15px;color:var(--ink)">0 L</b> <span style="font-size:12px;color:var(--mute)">(0 of ' + TK.tanks.length + ' tanks entered)</span></div>' +
+    '</div>' +
+    '<div class="err" id="w_er"></div>' +
+    '<button style="width:100%;margin-top:12px;font-weight:700" onclick="saveWorkerDips()">Save All Readings</button>';
+  }
+
+  h+='<h1 style="margin-top:24px">My recent readings</h1>';if(!TK.mine.length)h+='<div class="empty">No readings yet.</div>';
+  TK.mine.forEach(function(d){h+='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(d.tank)+'</b><span class="amt" style="flex:none">'+lt(d.litres)+'</span></div><div class="sub">'+tdate(d.t)+(d.dip!=null?' \u00b7 Dip '+d.dip+' cm':'')+(d.d15!=null?' \u00b7 Density@15 '+d.d15:d.dens_obs!=null?' \u00b7 Density '+d.dens_obs:'')+(d.note?' \u00b7 '+esc(d.note):'')+'</div></div>'});
+  document.getElementById("app").innerHTML=h;
+}
 function tankForm(){openM('<h2>Tanks</h2><div class="sub">Dip readings are tracked per tank.</div>'+S.tanks.map(function(t){return '<div class="row" style="margin-top:10px"><span>'+esc(t.name)+'<div class="sub">'+esc(t.fuel)+(t.capacity?' \u00b7 '+lt(t.capacity):'')+(t.chart&&t.chart.length>1?' \u00b7 dip chart set':' \u00b7 no dip chart')+'</div></span><button class="ghost" style="flex:none;padding:6px 10px" onclick="tankEdit('+t.id+')">Edit</button></div>'}).join("")+'<div class="row" style="margin-top:14px"><button class="ghost" onclick="close();renderTanks()">Close</button><button onclick="tankEdit(0)">Add tank</button></div>')}
 function tankEdit(id){var t=id?S.tanks.filter(function(x){return x.id==id})[0]:{name:"",fuel:fuelNames()[0],capacity:"",chart:[]};
 openM('<h2>'+(id?'Edit tank':'Add tank')+'</h2><label>Name<input id="k1" placeholder="e.g. Tank 1" value="'+esc(t.name)+'"></label><label>Fuel<select id="k2">'+fuelNames().map(function(f){return '<option'+(f==t.fuel?' selected':'')+'>'+f+'</option>'}).join("")+'</select></label><label>Capacity (litres)<input id="k3" inputmode="decimal" value="'+esc(t.capacity)+'"></label><label>Dip chart (optional): one line per reading, as dip, litres<textarea id="k4" placeholder="10, 500&#10;20, 1100&#10;30, 1800" style="width:100%;height:120px;font:13px monospace;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);padding:8px;margin-top:4px">'+esc((t.chart||[]).map(function(c){return c.cm+", "+c.l}).join("\n"))+'</textarea></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="tankForm()">Cancel</button><button onclick="saveTank('+id+')">Save tank</button></div>')}
@@ -2318,16 +2500,189 @@ if(!nm)return er("Enter the tank name.");if(!(cap>0))return er("Enter the tank c
 for(var i=0;i<ls.length;i++){var p=ls[i].split(/[,\s]+/),a=parseFloat(p[0]),b=parseFloat(p[1]);if(p.length!=2||isNaN(a)||isNaN(b))return er("Dip chart line "+(i+1)+" should look like: 10, 500");ch.push({cm:a,l:b})}
 ch.sort(function(x,y){return x.cm-y.cm});
 var o={name:nm,fuel:v("k2"),capacity:cap,chart:ch};if(id)Object.assign(S.tanks.filter(function(x){return x.id==id})[0],o);else{o.id=Date.now();S.tanks.push(o)}save();tankForm()}
-function delivForm(){var oc=S.sup.filter(function(s){return s.kind=="Oil company"});if(!oc.length)return toast("Add the oil company in Suppliers first.");if(!S.tanks.length)return toast("Add your tanks first (Tanks setup).");
-var rows="";for(var i=0;i<3;i++)rows+='<div class="row"><label>Tank<select id="vt'+i+'"><option value="">None</option>'+S.tanks.map(function(t){return '<option value="'+t.id+'">'+esc(t.name)+'</option>'}).join("")+'</select></label><label>Litres<input id="vl'+i+'" inputmode="decimal"></label><label>Amount (\u20b9)<input id="va'+i+'" inputmode="decimal"></label></div><div class="row"><label>Invoice dens.<input id="vi'+i+'" inputmode="decimal" placeholder="0.745"></label><label>Measured<input id="vm'+i+'" inputmode="decimal"></label><label>Temp \u00b0C<input id="vc'+i+'" inputmode="decimal"></label><label>At 15 \u00b0C<input id="vd'+i+'" inputmode="decimal"></label></div>';
-openM('<h2>Fuel delivery</h2><div class="sub">Records the litres in each tank and adds the bill to the oil company account.</div><label>Date<input id="dd" type="date" value="'+today()+'"></label><label>Oil company<select id="ds">'+oc.map(function(s){return '<option value="'+s.id+'">'+esc(s.name)+'</option>'}).join("")+'</select></label><label>Bill number (optional)<input id="db"></label><label style="margin-top:16px">Litres, bill amount and density for each fuel (up to 3 tanks). Density is optional. The bill total is the sum.</label>'+rows+'<div class="err" id="er"></div><div class="row" style="margin-top:12px"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveDeliv()">Save delivery</button></div>')}
-function saveDeliv(){var ls=[],a=0;
-for(var i=0;i<3;i++){var t=v("vt"+i),l=parseFloat(v("vl"+i)),m=parseFloat(v("va"+i));if(!t&&!(l>0)&&!(m>0))continue;if(!t||!(l>0)||!(m>0))return er("For each row you use, choose a tank and enter the litres and the amount.");if(ls.some(function(x){return x.tank_id==t}))return er("Each tank can appear once.");var dn={inv:v("vi"+i),obs:v("vm"+i),temp:v("vc"+i),d15:v("vd"+i)},has=false;for(var k in dn){if(dn[k]!==""){has=true;var num=parseFloat(dn[k]);if(isNaN(num)||(k=="temp"?(num<-10||num>90):(num<0.5||num>1.2)))return er("Check the "+(k=="temp"?"temperature":"density")+" you entered for this tank.");dn[k]=num}else delete dn[k]}
-ls.push(has?{tank_id:t,litres:l,amount:m,dens:dn}:{tank_id:t,litres:l,amount:m});a+=m}
-if(!ls.length)return er("Enter the litres and amount for at least one tank.");a=rnd(a);
-var d=v("dd"),id=Date.now(),tot=ls.reduce(function(s,l){return s+l.litres},0),ts=d==today()?Date.now():new Date(d+"T12:00:00").getTime();
-S.deliv.push({id:id,d:d,ts:ts,sup:v("ds"),billno:v("db"),amount:a,lines:ls});
-sfind(v("ds")).e.push({d:d,t:"bill",n:"Fuel delivery"+(v("db")?" "+v("db"):"")+" ("+tot+" L)",a:a,dv:id});save();close();renderTanks()}
+function delivForm(preTankId, preDate) {
+  if (!S.tanks.length) return toast("Add your tanks first (Tanks setup).");
+  var curDate = preDate || today();
+  var ocList = (S.sup || []).filter(function(s) { return s.kind === "Oil company" || s.kind === "Supplier"; });
+
+  var h = '<h2>Fuel Delivery (Product Receipts)</h2>' +
+    '<div class="sub">Record physical product delivery volume (litres) for all underground storage tanks.</div>' +
+    '<div style="margin:14px 0 16px;background:var(--card);padding:12px 14px;border-radius:8px;border:1px solid var(--line);display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px">' +
+      '<label style="margin:0;font-size:12px;font-weight:700">Delivery Date' +
+        '<input id="dd" type="date" value="' + curDate + '" style="margin-top:4px;padding:6px 10px;font-size:13px;font-weight:600;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)">' +
+      '</label>' +
+      '<label style="margin:0;font-size:12px;font-weight:700">Challan / Bill No. (optional)' +
+        '<input id="db" placeholder="e.g. CH-84920" style="margin-top:4px;padding:6px 10px;font-size:13px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)">' +
+      '</label>' +
+      '<label style="margin:0;font-size:12px;font-weight:700">Oil Company / Supplier (optional)' +
+        '<select id="ds" style="margin-top:4px;padding:6px 10px;font-size:13px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)">' +
+          '<option value="">None / Direct Receipt</option>' +
+          ocList.map(function(s) { return '<option value="' + s.id + '">' + esc(s.name) + '</option>'; }).join("") +
+        '</select>' +
+      '</label>' +
+    '</div>' +
+    '<div style="max-height:55vh;overflow-y:auto;padding-right:4px">';
+
+  S.tanks.forEach(function(t) {
+    var fuelBadge = (t.fuel.toLowerCase().indexOf('petrol') >= 0 || t.fuel.toLowerCase().indexOf('ms') >= 0) ? '⛽ ' + esc(t.fuel) : '🛢️ ' + esc(t.fuel);
+    var isPrefocused = (preTankId && String(preTankId) === String(t.id));
+
+    h += '<div style="margin-bottom:12px;padding:12px 14px;background:var(--card);border:' + (isPrefocused ? '2px solid var(--btn,#2563EB)' : '1px solid var(--line)') + ';border-radius:8px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px">' +
+        '<div>' +
+          '<b style="font-size:15px;color:var(--ink)">' + esc(t.name) + '</b>' +
+          '<span style="margin-left:8px;font-size:11.5px;font-weight:700;background:rgba(37,99,235,0.08);color:var(--btn,#2563EB);padding:2px 8px;border-radius:10px">' + fuelBadge + '</span>' +
+          (t.capacity ? '<span style="margin-left:6px;font-size:11.5px;color:var(--mute)">Capacity: ' + lt(t.capacity) + '</span>' : '') +
+        '</div>' +
+        '<div style="font-size:11.5px;color:var(--mute)">' +
+          (t.last ? 'Current stock: <b>' + lt(t.last.litres) + '</b>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:flex-start">' +
+        '<div>' +
+          '<label style="font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:3px">Volume Received (Litres)' +
+            '<input id="dliv_l_' + t.id + '" inputmode="decimal" placeholder="e.g. 4000" oninput="calcTotalDelivSummary(' + t.id + ')" style="font-weight:700;font-size:14px">' +
+          '</label>' +
+          '<div id="dliv_kl_' + t.id + '" style="font-size:11px;color:var(--mute);margin-top:2px">Enter receipt volume in litres</div>' +
+        '</div>' +
+        '<div>' +
+          '<label style="font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:3px">Bill Amount (₹, optional)' +
+            '<input id="dliv_amt_' + t.id + '" inputmode="decimal" placeholder="Optional invoice amount" oninput="calcTotalDelivSummary(' + t.id + ')" style="font-size:14px">' +
+          '</label>' +
+          '<div id="dliv_rate_' + t.id + '" style="font-size:11px;color:var(--mute);margin-top:2px">Optional supplier cost</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  });
+
+  h += '</div>' +
+    // Live Summary Box
+    '<div id="dliv_summary_bar" style="margin-top:14px;padding:12px 16px;background:rgba(37,99,235,0.06);border:1px solid rgba(37,99,235,0.2);border-radius:8px;font-size:13px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<div>Total Received: <b style="font-size:15px;color:var(--ink)">0 L (0.00 KL)</b> <span style="font-size:12px;color:var(--mute)">(0 of ' + S.tanks.length + ' tanks entered)</span></div>' +
+      '<div style="font-size:12px;color:var(--mute)">Density checks are recorded in Density Register</div>' +
+    '</div>' +
+    '<div class="err" id="er"></div>' +
+    '<div class="row" style="margin-top:16px;justify-content:flex-end;gap:8px">' +
+      '<button class="ghost" onclick="close()">Cancel</button>' +
+      '<button onclick="saveDeliv()" style="font-weight:700">Save Fuel Delivery</button>' +
+    '</div>';
+
+  openM(h, true);
+  calcTotalDelivSummary();
+
+  if (preTankId) {
+    setTimeout(function() {
+      var el = document.getElementById("dliv_l_" + preTankId);
+      if (el) el.focus();
+    }, 100);
+  }
+}
+
+function calcTotalDelivSummary(focusTankId) {
+  var totalL = 0, totalAmt = 0, count = 0;
+
+  S.tanks.forEach(function(t) {
+    var lEl = document.getElementById("dliv_l_" + t.id);
+    var aEl = document.getElementById("dliv_amt_" + t.id);
+    var klEl = document.getElementById("dliv_kl_" + t.id);
+    var rateEl = document.getElementById("dliv_rate_" + t.id);
+
+    var lStr = lEl ? lEl.value.trim() : "";
+    var aStr = aEl ? aEl.value.trim() : "";
+
+    var lNum = lStr !== "" && !isNaN(+lStr) ? parseFloat(lStr) : 0;
+    var aNum = aStr !== "" && !isNaN(+aStr) ? parseFloat(aStr) : 0;
+
+    if (lNum > 0) {
+      totalL += lNum;
+      count++;
+      var kl = (lNum / 1000).toFixed(2);
+      if (klEl) klEl.innerHTML = '<span style="color:var(--ok,#16A34A);font-weight:700">&check; ' + lt(lNum) + ' (' + kl + ' KL)</span>';
+      if (aNum > 0 && rateEl) {
+        var rpl = (aNum / lNum).toFixed(2);
+        rateEl.innerHTML = '<span style="color:var(--ink);font-weight:600">Rate: &#8377;' + rpl + ' / L</span>';
+      } else if (rateEl) {
+        rateEl.innerHTML = '<span style="color:var(--mute)">Optional supplier cost</span>';
+      }
+    } else {
+      if (klEl) klEl.innerHTML = '<span style="color:var(--mute)">Enter receipt volume in litres</span>';
+      if (rateEl) rateEl.innerHTML = '<span style="color:var(--mute)">Optional supplier cost</span>';
+    }
+
+    if (aNum > 0) totalAmt += aNum;
+  });
+
+  var bar = document.getElementById("dliv_summary_bar");
+  if (bar) {
+    var totalKl = (totalL / 1000).toFixed(2);
+    bar.innerHTML = '<div>Total Received: <b style="font-size:15px;color:var(--ink)">' + (Math.round(totalL * 10) / 10).toLocaleString("en-IN") + ' L (' + totalKl + ' KL)</b> <span style="font-size:12px;color:var(--mute)">(' + count + ' of ' + S.tanks.length + ' tanks entered)</span>' + (totalAmt > 0 ? ' &bull; Bill: <b>' + inr(totalAmt) + '</b>' : '') + '</div>' +
+      '<div style="font-size:12px;color:var(--mute)">Density checks are recorded in Density Register</div>';
+  }
+}
+
+function saveDeliv() {
+  var ls = [], totalAmt = 0;
+  var errEl = document.getElementById("er");
+  if (errEl) errEl.innerHTML = "";
+
+  S.tanks.forEach(function(t) {
+    var lEl = document.getElementById("dliv_l_" + t.id);
+    var aEl = document.getElementById("dliv_amt_" + t.id);
+    var lStr = lEl ? lEl.value.trim() : "";
+    var aStr = aEl ? aEl.value.trim() : "";
+
+    if (lStr !== "" && !isNaN(+lStr) && +lStr > 0) {
+      var l = parseFloat(lStr);
+      var m = (aStr !== "" && !isNaN(+aStr) && +aStr > 0) ? parseFloat(aStr) : 0;
+      ls.push({
+        tank_id: t.id,
+        litres: l,
+        amount: m
+      });
+      totalAmt += m;
+    }
+  });
+
+  if (!ls.length) return er("Please enter the volume received (litres) for at least one tank.");
+
+  var d = v("dd") || today();
+  var id = Date.now();
+  var totLitres = ls.reduce(function(s, l) { return s + l.litres; }, 0);
+  var ts = d === today() ? Date.now() : new Date(d + "T12:00:00").getTime();
+  var supId = v("ds");
+  var billNo = v("db");
+
+  totalAmt = rnd(totalAmt);
+  if (!S.deliv) S.deliv = [];
+  S.deliv.push({
+    id: id,
+    d: d,
+    ts: ts,
+    sup: supId,
+    billno: billNo,
+    amount: totalAmt,
+    lines: ls
+  });
+
+  if (supId) {
+    var supObj = sfind(supId);
+    if (supObj) {
+      if (!supObj.e) supObj.e = [];
+      supObj.e.push({
+        d: d,
+        t: "bill",
+        n: "Fuel delivery" + (billNo ? " " + billNo : "") + " (" + lt(totLitres) + ")",
+        a: totalAmt,
+        dv: id
+      });
+    }
+  }
+
+  save();
+  close();
+  toast("Saved fuel delivery of " + lt(totLitres) + " for " + ls.length + " tank(s).");
+  renderTanks();
+}
 function delDeliv(id){ask("Delete this delivery? The bill is removed from the oil company account too.",function(){S.deliv=S.deliv.filter(function(d){return d.id!=id});S.sup.forEach(function(s){s.e=s.e.filter(function(x){return x.dv!=id})});save();renderTanks()})}
 var PM=today().slice(0,7),SHS=["Morning","Evening","Night"],KL={advance:"Advance",bonus:"Bonus",waive:"Shortage waived",paid:"Paid"};
 function payCard(w,own){var L=function(a,b,c){return '<tr><td>'+a+'</td><td class="r"'+(c?' style="color:'+c+'"':'')+'>'+b+'</td></tr>'};
@@ -3392,23 +3747,218 @@ function deleteMeterDate(d) {
 
 function morningDensityForm(preTankId, preDate) {
   if (!S.tanks.length) return toast("Add your tanks first in Tanks setup.");
-  var todayStr = preDate || today();
-  var defaultTankId = preTankId || (DENS_FILTER.tank_id ? DENS_FILTER.tank_id : (TANK_PRODUCT ? (S.tanks.filter(function(t){ return t.fuel === TANK_PRODUCT; })[0] || {}).id : S.tanks[0].id));
-  openM('<h2>Daily Morning Underground Tank Density</h2><div class="sub">Log morning observed density & temperature for underground tanks at 15°C (ASTM 53B)</div>' +
-    '<div class="row">' +
-      '<label>Date<input id="md_d" type="date" value="' + todayStr + '"></label>' +
-      '<label>Tank<select id="md_tank">' + S.tanks.map(function(t){return '<option value="' + t.id + '"' + (String(t.id) === String(defaultTankId) ? ' selected' : '') + '>' + esc(t.name) + ' (' + esc(t.fuel) + ')</option>'}).join("") + '</select></label>' +
+  var curDate = preDate || today();
+
+  var h = '<h2>Daily Morning Tank Density</h2>' +
+    '<div class="sub">Log morning observed density & temperature at 15&deg;C (ASTM 53B) for all underground storage tanks.</div>' +
+    '<div style="margin:14px 0 16px;background:var(--card);padding:12px 14px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">' +
+      '<label style="margin:0;font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:10px">Reading Date:' +
+        '<input id="all_md_date" type="date" value="' + curDate + '" onchange="changeMorningDensDate(this.value, \'' + (preTankId || '') + '\')" style="padding:6px 10px;font-size:13px;font-weight:600;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)">' +
+      '</label>' +
+      '<span style="font-size:12px;color:var(--mute)">Applied to all underground storage tanks</span>' +
     '</div>' +
-    '<div style="font-weight:700;margin:12px 0 6px;color:var(--ink)">Underground Tank Observations</div>' +
-    '<div class="row">' +
-      '<label>Observed Density (kg/m³)<input id="md_obs" inputmode="decimal" placeholder="e.g. 732.0" oninput="calcMorningD15()"></label>' +
-      '<label>Temperature (°C)<input id="md_temp" inputmode="decimal" placeholder="e.g. 27.0" oninput="calcMorningD15()"></label>' +
-      '<label>Density at 15°C (kg/m³)<input id="md_d15" inputmode="decimal" placeholder="Auto / e.g. 742.7"></label>' +
+    '<div style="max-height:55vh;overflow-y:auto;padding-right:4px">';
+
+  S.tanks.forEach(function(t) {
+    var fuelBadge = (t.fuel.toLowerCase().indexOf('petrol') >= 0 || t.fuel.toLowerCase().indexOf('ms') >= 0) ? '⛽ ' + esc(t.fuel) : '🛢️ ' + esc(t.fuel);
+    var isPrefocused = (preTankId && String(preTankId) === String(t.id));
+
+    // Check existing record from LAST_DREG_DATA if available
+    var existingRow = null;
+    if (window.LAST_DREG_DATA && window.LAST_DREG_DATA.rows) {
+      existingRow = window.LAST_DREG_DATA.rows.filter(function(r) {
+        return String(r.tank_id) === String(t.id) && r.d === curDate;
+      })[0];
+    }
+
+    var initObs = (existingRow && existingRow.m_obs != null) ? existingRow.m_obs : "";
+    var initTemp = (existingRow && existingRow.m_temp != null) ? existingRow.m_temp : "";
+    var initD15 = (existingRow && existingRow.m_d15 != null) ? existingRow.m_d15 : "";
+
+    var isPetrol = (t.fuel.toLowerCase().indexOf('petrol') >= 0 || t.fuel.toLowerCase().indexOf('ms') >= 0);
+    var isDiesel = (t.fuel.toLowerCase().indexOf('diesel') >= 0 || t.fuel.toLowerCase().indexOf('hsd') >= 0);
+    var stdRange = isPetrol ? '720.0 &ndash; 775.0 kg/m&sup3;' : isDiesel ? '820.0 &ndash; 860.0 kg/m&sup3;' : 'Standard range';
+
+    h += '<div style="margin-bottom:12px;padding:12px 14px;background:var(--card);border:' + (isPrefocused ? '2px solid var(--btn,#2563EB)' : '1px solid var(--line)') + ';border-radius:8px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px">' +
+        '<div>' +
+          '<b style="font-size:15px;color:var(--ink)">' + esc(t.name) + '</b>' +
+          '<span style="margin-left:8px;font-size:11.5px;font-weight:700;background:rgba(37,99,235,0.08);color:var(--btn,#2563EB);padding:2px 8px;border-radius:10px">' + fuelBadge + '</span>' +
+          (t.capacity ? '<span style="margin-left:6px;font-size:11.5px;color:var(--mute)">Capacity: ' + lt(t.capacity) + '</span>' : '') +
+        '</div>' +
+        '<div style="font-size:11.5px;color:var(--mute)">' +
+          'Statutory Std: <b style="color:var(--ink)">' + stdRange + '</b>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:12px;align-items:flex-start">' +
+        '<div>' +
+          '<label style="font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:3px">Observed Density (kg/m&sup3;)' +
+            '<input id="m_obs_' + t.id + '" inputmode="decimal" placeholder="e.g. ' + (isPetrol ? '732.0' : '828.0') + '" value="' + (initObs !== '' ? initObs : '') + '" oninput="onMorningDensInput(' + t.id + ')" style="font-weight:700;font-size:14px">' +
+          '</label>' +
+          '<div style="font-size:11px;color:var(--mute);margin-top:2px">Hydrometer reading</div>' +
+        '</div>' +
+        '<div>' +
+          '<label style="font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:3px">Temperature (&deg;C)' +
+            '<input id="m_temp_' + t.id + '" inputmode="decimal" placeholder="e.g. 27.0" value="' + (initTemp !== '' ? initTemp : '') + '" oninput="onMorningDensInput(' + t.id + ')" style="font-weight:700;font-size:14px">' +
+          '</label>' +
+          '<div style="font-size:11px;color:var(--mute);margin-top:2px">Sample temperature</div>' +
+        '</div>' +
+        '<div>' +
+          '<label style="font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:3px">Density @ 15&deg;C (kg/m&sup3;)' +
+            '<input id="m_d15_' + t.id + '" inputmode="decimal" placeholder="Auto calculated" value="' + (initD15 !== '' ? initD15 : '') + '" oninput="calcTotalMorningDensSummary()" style="font-weight:700;font-size:14px">' +
+          '</label>' +
+          '<div id="m_d15_hint_' + t.id + '" style="font-size:11px;color:var(--mute);margin-top:2px">' +
+            (initD15 !== '' ? '<span style="color:var(--ok,#16A34A);font-weight:700">&check; Recorded: ' + (+initD15).toFixed(1) + ' kg/m&sup3;</span>' : 'ASTM 53B auto-conversion') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  });
+
+  h += '</div>' +
+    // Live Summary Box
+    '<div id="md_summary_bar" style="margin-top:14px;padding:12px 16px;background:rgba(37,99,235,0.06);border:1px solid rgba(37,99,235,0.2);border-radius:8px;font-size:13px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<div>Morning Densities Recorded: <b style="font-size:15px;color:var(--ink)">0 of ' + S.tanks.length + ' tanks</b></div>' +
+      '<div style="font-size:12px;color:var(--mute)">Recorded in statutory Daily Density Register</div>' +
     '</div>' +
-    '<div class="sub" style="margin-top:6px;font-size:11.5px">Statutory standard: MS (720.0 &ndash; 775.0 kg/m³) &bull; HSD (820.0 &ndash; 860.0 kg/m³)</div>' +
     '<div class="err" id="er"></div>' +
-    '<div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveMorningDensity()">Save Morning Density</button></div>'
-  );
+    '<div class="row" style="margin-top:16px;justify-content:flex-end;gap:8px">' +
+      '<button class="ghost" onclick="close()">Cancel</button>' +
+      '<button onclick="saveAllMorningDensities()" style="font-weight:700">Save All Morning Densities</button>' +
+    '</div>';
+
+  openM(h, true);
+  calcTotalMorningDensSummary();
+
+  if (preTankId) {
+    setTimeout(function() {
+      var el = document.getElementById("m_obs_" + preTankId);
+      if (el) el.focus();
+    }, 100);
+  }
+}
+
+function changeMorningDensDate(newDate, preTankId) {
+  if (!newDate) return;
+  morningDensityForm(preTankId, newDate);
+}
+
+function onMorningDensInput(tankId) {
+  var t = S.tanks.filter(function(x) { return x.id == tankId; })[0];
+  if (!t) return;
+  var obsEl = document.getElementById("m_obs_" + tankId);
+  var tempEl = document.getElementById("m_temp_" + tankId);
+  var d15El = document.getElementById("m_d15_" + tankId);
+  var hintEl = document.getElementById("m_d15_hint_" + tankId);
+  if (!obsEl || !tempEl || !d15El) return;
+
+  var obsVal = obsEl.value.trim();
+  var tempVal = tempEl.value.trim();
+
+  if (obsVal !== "" && !isNaN(+obsVal) && tempVal !== "" && !isNaN(+tempVal)) {
+    var obs = parseFloat(obsVal);
+    var temp = parseFloat(tempVal);
+    var o = obs < 2 ? obs * 1000 : obs;
+    var d15 = Math.round((o + (temp - 15) * 0.89) * 10) / 10;
+    d15El.value = d15.toFixed(1);
+
+    var isPetrol = (t.fuel.toLowerCase().indexOf('petrol') >= 0 || t.fuel.toLowerCase().indexOf('ms') >= 0);
+    var isDiesel = (t.fuel.toLowerCase().indexOf('diesel') >= 0 || t.fuel.toLowerCase().indexOf('hsd') >= 0);
+    var inRange = true;
+    var rangeText = "";
+    if (isPetrol) {
+      inRange = (d15 >= 720 && d15 <= 775);
+      rangeText = "MS std: 720–775";
+    } else if (isDiesel) {
+      inRange = (d15 >= 820 && d15 <= 860);
+      rangeText = "HSD std: 820–860";
+    }
+
+    if (hintEl) {
+      if (inRange) {
+        hintEl.innerHTML = '<span style="color:var(--ok,#16A34A);font-weight:700">&check; Auto @ 15&deg;C: ' + d15.toFixed(1) + ' kg/m&sup3; (Within std)</span>';
+      } else {
+        hintEl.innerHTML = '<span style="color:var(--due,#DC2626);font-weight:700">&Delta; ' + d15.toFixed(1) + ' kg/m&sup3; (Outside ' + rangeText + ')</span>';
+      }
+    }
+  } else if (obsVal !== "" && !isNaN(+obsVal)) {
+    var obsOnly = parseFloat(obsVal);
+    var oOnly = obsOnly < 2 ? obsOnly * 1000 : obsOnly;
+    if (hintEl) hintEl.innerHTML = '<span style="color:var(--mute)">Obs: ' + oOnly.toFixed(1) + ' (enter temp for 15&deg;C conversion)</span>';
+  } else {
+    if (hintEl) hintEl.innerHTML = '<span style="color:var(--mute)">ASTM 53B auto-conversion</span>';
+  }
+  calcTotalMorningDensSummary();
+}
+
+function calcTotalMorningDensSummary() {
+  var count = 0;
+  S.tanks.forEach(function(t) {
+    var obsEl = document.getElementById("m_obs_" + t.id);
+    var d15El = document.getElementById("m_d15_" + t.id);
+    var obsStr = obsEl ? obsEl.value.trim() : "";
+    var d15Str = d15El ? d15El.value.trim() : "";
+    if ((obsStr !== "" && !isNaN(+obsStr)) || (d15Str !== "" && !isNaN(+d15Str))) {
+      count++;
+    }
+  });
+
+  var bar = document.getElementById("md_summary_bar");
+  if (bar) {
+    bar.innerHTML = '<div>Morning Densities Recorded: <b style="font-size:15px;color:var(--ink)">' + count + ' of ' + S.tanks.length + ' tanks</b></div>' +
+      '<div style="font-size:12px;color:var(--mute)">Recorded in statutory Daily Density Register</div>';
+  }
+}
+
+function saveAllMorningDensities() {
+  var readings = [];
+  var dVal = (document.getElementById("all_md_date") && document.getElementById("all_md_date").value) || today();
+  var errEl = document.getElementById("er");
+  if (errEl) errEl.innerHTML = "";
+
+  S.tanks.forEach(function(t) {
+    var obsEl = document.getElementById("m_obs_" + t.id);
+    var tempEl = document.getElementById("m_temp_" + t.id);
+    var d15El = document.getElementById("m_d15_" + t.id);
+
+    var obsStr = obsEl ? obsEl.value.trim() : "";
+    var tempStr = tempEl ? tempEl.value.trim() : "";
+    var d15Str = d15El ? d15El.value.trim() : "";
+
+    if (obsStr !== "" || d15Str !== "") {
+      var obsNum = obsStr !== "" && !isNaN(+obsStr) ? parseFloat(obsStr) : null;
+      var tempNum = tempStr !== "" && !isNaN(+tempStr) ? parseFloat(tempStr) : null;
+      var d15Num = d15Str !== "" && !isNaN(+d15Str) ? parseFloat(d15Str) : null;
+
+      if (d15Num == null && obsNum != null && tempNum != null) {
+        var o = obsNum < 2 ? obsNum * 1000 : obsNum;
+        d15Num = Math.round((o + (tempNum - 15) * 0.89) * 10) / 10;
+      }
+
+      readings.push({
+        tank_id: t.id,
+        m_obs: obsNum,
+        m_temp: tempNum,
+        m_d15: d15Num
+      });
+    }
+  });
+
+  if (!readings.length) {
+    if (errEl) errEl.innerHTML = "Please enter observed density for at least one tank.";
+    return;
+  }
+
+  api("POST", "/api/density-register", {
+    d: dVal,
+    readings: readings
+  }).then(function() {
+    close();
+    toast("Saved morning densities for " + readings.length + " tank(s).");
+    renderTanks();
+  }).catch(function(e) {
+    if (errEl) errEl.innerHTML = esc(e.error || "Could not save morning density.");
+  });
 }
 
 function calcMorningD15() {
@@ -3422,22 +3972,7 @@ function calcMorningD15() {
 }
 
 function saveMorningDensity() {
-  var b = {
-    d: v("md_d"),
-    tank_id: v("md_tank"),
-    m_obs: v("md_obs"),
-    m_temp: v("md_temp"),
-    m_d15: v("md_d15")
-  };
-  if (!b.tank_id) return er("Please choose a tank.");
-  if (!b.d) return er("Please select a date.");
-  if (!b.m_obs && !b.m_d15) return er("Please enter observed density.");
-  api("POST", "/api/density-register", b).then(function() {
-    close();
-    renderTanks();
-  }).catch(function(e) {
-    er(e.error || "Could not save morning density.");
-  });
+  saveAllMorningDensities();
 }
 
 function tankerDecantForm(preTankId, preDate) {
