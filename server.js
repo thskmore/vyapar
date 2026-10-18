@@ -110,6 +110,19 @@ async function initDb() {
     updated_at integer not null,
     unique(pump_id, d, nozzle_id)
   );
+  create table if not exists duty_handovers(
+    id integer primary key autoincrement,
+    pump_id integer not null default 1,
+    from_duty_id integer not null,
+    to_duty_id integer not null,
+    from_worker_id integer not null,
+    to_worker_id integer not null,
+    shift text not null,
+    d text not null,
+    nozzle_ids text not null,
+    notes text,
+    created_at integer not null
+  );
   `);
 
   const addCol = (t, c, def) => {
@@ -140,6 +153,7 @@ async function initDb() {
   addCol("bank_deposits", "pump_id", "integer not null default 1");
   addCol("cash_flow_days", "pump_id", "integer not null default 1");
   addCol("meter_readings", "pump_id", "integer not null default 1");
+  addCol("duty_handovers", "pump_id", "integer not null default 1");
 
   // Migrate composite PK tables in SQLite if they lacked pump_id in PK
   try {
@@ -757,8 +771,10 @@ const AUD = {
   "POST /api/credit-sales/:id/reject": (q) => `Rejected credit sale #${q.params.id}`,
   "DELETE /api/credit-sales/:id": (q) => `Deleted credit sale #${q.params.id}`,
   "POST /api/duty/:id/submit": (q) => `Submitted duty #${q.params.id}`,
+  "POST /api/duty/handover": (q) => `Handed over duty nozzles to worker #${q.body.target_worker_id}`,
   "POST /api/duties/assign": (q) => `Assigned a ${q.body.shift} duty to worker #${q.body.worker_id}`,
   "DELETE /api/duties/:id": (q) => `Cancelled duty #${q.params.id}`,
+  "POST /api/duties/:id/send-back": (q) => `Sent duty #${q.params.id} back to worker`,
   "POST /api/duties/:id/close": (q) => `Closed duty #${q.params.id}`,
   "POST /api/duties/:id/reopen": (q) => `Reopened duty #${q.params.id}`,
   "POST /api/days/:d/close": (q) => `Closed business day ${q.params.d}`,
@@ -1016,6 +1032,208 @@ app.post("/api/duty/:id/submit", need(), mine, (q, s) => {
   s.json({ ok: true });
 });
 
+// ---- Worker: duty handover
+app.get("/api/duty/handover-info", need(), (q, s) => {
+  const pid = q.user.pump_id;
+  const st = stateNow(pid);
+  const d = bizDate();
+  const dStatus = dayStatus(d, pid);
+
+  // Active duty for caller (if any)
+  const activeDuty = openDuty(q.user.id, pid);
+
+  // Most recently submitted or closed duty for this worker
+  const recentDuty = db.prepare("select * from duties where pump_id=? and worker_id=? and status in ('submitted','closed') order by id desc limit 1").get(pid, q.user.id);
+
+  let recent = null;
+  let nozzles = [];
+  if (recentDuty) {
+    recent = detail(recentDuty, pid);
+    const nm = nozzleMap(st);
+
+    // Busy nozzles in currently active OPEN duties
+    const busy = {};
+    db.prepare(`
+      select dl.nozzle_id n, u.name w, du.id duty_id, du.shift
+      from duty_lines dl
+      join duties du on du.id=dl.duty_id
+      join users u on u.id=du.worker_id
+      where du.pump_id=? and du.status='open'
+    `).all(pid).forEach((x) => { busy[x.n] = x; });
+
+    nozzles = (recent.lines || []).map((l) => {
+      const nInfo = nm[l.nozzle_id] || {};
+      const fuel = l.fuel || nInfo.fuel || "";
+      const currentRate = fuel ? rateFor(st, fuel, d) : null;
+      const closingVal = (l.closing != null && l.closing !== "") ? +l.closing : (lastClose(l.nozzle_id, pid).c ?? (nInfo.open ?? null));
+      return {
+        id: l.nozzle_id,
+        name: l.name || nInfo.name || `Nozzle #${l.nozzle_id}`,
+        fuel,
+        closing: closingVal,
+        opening_rate: l.rate,
+        current_rate: currentRate,
+        is_busy: !!busy[String(l.nozzle_id)],
+        busy_with: busy[String(l.nozzle_id)] ? busy[String(l.nozzle_id)].w : null,
+        busy_shift: busy[String(l.nozzle_id)] ? busy[String(l.nozzle_id)].shift : null
+      };
+    });
+  }
+
+  // Active workers at this pump (including caller)
+  const activeWorkers = db.prepare("select id, name, mobile from users where pump_id=? and role='worker' and active=1 order by name").all(pid);
+  const openDuties = {};
+  db.prepare("select worker_id, shift, id from duties where pump_id=? and status='open'").all(pid).forEach((x) => { openDuties[x.worker_id] = x; });
+
+  const workers = activeWorkers.map((w) => ({
+    id: w.id,
+    name: w.name,
+    mobile: w.mobile,
+    is_me: w.id === q.user.id,
+    has_open_duty: !!openDuties[w.id],
+    open_duty_shift: openDuties[w.id] ? openDuties[w.id].shift : null
+  }));
+
+  // Handover history for this pump & worker
+  const history = db.prepare(`
+    select h.*, 
+           u1.name from_worker_name, 
+           u2.name to_worker_name
+    from duty_handovers h
+    left join users u1 on u1.id=h.from_worker_id
+    left join users u2 on u2.id=h.to_worker_id
+    where h.pump_id=? and (h.from_worker_id=? or h.to_worker_id=?)
+    order by h.id desc limit 15
+  `).all(pid, q.user.id, q.user.id);
+
+  s.json({
+    date: d,
+    day_status: dStatus,
+    active_duty: activeDuty ? detail(activeDuty, pid) : null,
+    recent_duty: recent,
+    nozzles,
+    workers,
+    shifts: SHIFTS,
+    history
+  });
+});
+
+app.post("/api/duty/handover", need(), (q, s) => {
+  const pid = q.user.pump_id;
+  const { target_worker_id, shift, nozzle_ids, notes } = q.body || {};
+  const st = stateNow(pid), d = bizDate();
+
+  if (dayStatus(d, pid) !== "open") {
+    return s.status(409).json({ error: "Today's business day is closed. Cannot handover duty." });
+  }
+
+  // Caller cannot handover if they still have an open duty in progress
+  if (openDuty(q.user.id, pid)) {
+    return s.status(400).json({ error: "Please submit your current duty before handing over nozzles." });
+  }
+
+  // Caller's most recently submitted or closed duty
+  const recentDuty = db.prepare("select * from duties where pump_id=? and worker_id=? and status in ('submitted','closed') order by id desc limit 1").get(pid, q.user.id);
+  if (!recentDuty) {
+    return s.status(400).json({ error: "No recently completed duty found to handover." });
+  }
+
+  // Target worker must be active worker at this pump
+  const targetWorker = db.prepare("select * from users where id=? and pump_id=? and active=1 and role='worker'").get(+target_worker_id, pid);
+  if (!targetWorker) {
+    return s.status(400).json({ error: "Choose a valid active worker to handover to." });
+  }
+
+  if (openDuty(targetWorker.id, pid)) {
+    return s.status(409).json({ error: `${targetWorker.name} already has an open duty in progress.` });
+  }
+
+  if (!SHIFTS.includes(shift)) {
+    return s.status(400).json({ error: "Choose a valid shift (Morning, Evening, or Night)." });
+  }
+
+  const ids = Array.isArray(nozzle_ids) ? [...new Set(nozzle_ids.map(String))] : [];
+  if (!ids.length) {
+    return s.status(400).json({ error: "Choose at least one nozzle to handover." });
+  }
+
+  // Ensure selected nozzles strictly belong to the caller's recent duty
+  const recentLines = db.prepare("select * from duty_lines where duty_id=?").all(recentDuty.id);
+  const recentNozzleMap = {};
+  recentLines.forEach((l) => { recentNozzleMap[String(l.nozzle_id)] = l; });
+
+  const nm = nozzleMap(st);
+  const linesToCreate = [];
+
+  for (const nid of ids) {
+    const recentLine = recentNozzleMap[nid];
+    if (!recentLine) {
+      return s.status(400).json({ error: "You can only handover nozzles from your own recently completed duty." });
+    }
+    const nDef = nm[nid];
+    if (!nDef || nDef.active === false) {
+      return s.status(400).json({ error: `Nozzle #${nid} is inactive or not found.` });
+    }
+
+    // Check if nozzle is currently in an active open duty
+    const busy = db.prepare(`
+      select u.name w from duty_lines dl
+      join duties du on du.id=dl.duty_id
+      join users u on u.id=du.worker_id
+      where du.pump_id=? and dl.nozzle_id=? and du.status='open' limit 1
+    `).get(pid, nid);
+    if (busy) {
+      return s.status(409).json({ error: `${nDef.name} is already active in a duty with ${busy.w}.` });
+    }
+
+    const rate = rateFor(st, nDef.fuel, d);
+    if (rate == null) {
+      return s.status(400).json({ error: `Set the ${nDef.fuel} rate in Pump setup first.` });
+    }
+
+    // Use closing reading of recent duty as opening reading of new duty
+    const opening = (recentLine.closing != null && recentLine.closing !== "") ? +recentLine.closing : (lastClose(nid, pid).c ?? nDef.open);
+    if (opening == null) {
+      return s.status(400).json({ error: `Could not determine opening meter reading for ${nDef.name}.` });
+    }
+
+    linesToCreate.push({ nozzle_id: nid, opening, rate, name: nDef.name });
+  }
+
+  const newDutyId = db.transaction(() => {
+    const did = db.prepare(`
+      insert into duties(pump_id, worker_id, d, shift, started, assigned_by)
+      values(?, ?, ?, ?, ?, ?)
+    `).run(pid, targetWorker.id, d, shift, now(), q.user.id).lastInsertRowid;
+
+    linesToCreate.forEach((l) => {
+      db.prepare(`
+        insert into duty_lines(duty_id, nozzle_id, opening, rate)
+        values(?, ?, ?, ?)
+      `).run(did, l.nozzle_id, l.opening, l.rate);
+    });
+
+    db.prepare(`
+      insert into duty_handovers(pump_id, from_duty_id, to_duty_id, from_worker_id, to_worker_id, shift, d, nozzle_ids, notes, created_at)
+      values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(pid, recentDuty.id, did, q.user.id, targetWorker.id, shift, d, ids.join(","), notes || null, now());
+
+    return did;
+  })();
+
+  const nozzleNames = linesToCreate.map((l) => l.name).join(", ");
+  audit(q.user, "duty handover", `Handed over ${nozzleNames} to ${targetWorker.name} for ${shift} shift (Duty #${newDutyId})`);
+
+  s.json({
+    ok: true,
+    duty_id: newDutyId,
+    worker_id: targetWorker.id,
+    worker_name: targetWorker.name,
+    shift,
+    nozzles: linesToCreate.map((l) => ({ id: l.nozzle_id, name: l.name, opening: l.opening }))
+  });
+});
+
 // ---- Manager: assign nozzles, review, close
 app.get("/api/assign-info", need("owner", "manager"), (q, s) => {
   const pid = q.user.pump_id, st = stateNow(pid), d = bizDate();
@@ -1085,9 +1303,15 @@ app.get("/api/duties", need("owner", "manager"), (q, s) => {
 });
 app.get("/api/duties/:id", need("owner", "manager"), (q, s) => {
   const pid = q.user.pump_id;
-  const d = db.prepare("select * from duties where id=? and pump_id=? and status<>'open'").get(+q.params.id, pid);
+  const d = db.prepare("select * from duties where id=? and pump_id=?").get(+q.params.id, pid);
   if (!d) return s.status(404).json({ error: "Duty not found." });
-  s.json(detail(d, pid));
+  const dt = detail(d, pid);
+  const st = stateNow(pid);
+  s.json({
+    ...dt,
+    duty: dt,
+    modes: allModes(st).map((m) => ({ key: m.key, name: m.name, slipCounter: m.slipCounter, type: m.type }))
+  });
 });
 app.put("/api/duties/:id", need("owner", "manager"), (q, s) => {
   const pid = q.user.pump_id;
@@ -1100,6 +1324,22 @@ app.put("/api/duties/:id", need("owner", "manager"), (q, s) => {
   if (JSON.stringify(before.lines.map((l) => [l.opening, l.closing, l.testing, l.rate])) !== JSON.stringify(after.lines.map((l) => [l.opening, l.closing, l.testing, l.rate]))) bits.push("nozzle readings changed");
   audit(q.user, "duty corrected", `Duty #${d.id} (${before.worker}, ${before.shift}): ${bits.length ? bits.join(", ") : "saved with no figure changes"}`);
   s.json({ ok: true });
+});
+app.post("/api/duties/:id/send-back", need("owner", "manager"), (q, s) => {
+  const pid = q.user.pump_id;
+  const { reason } = q.body || {};
+  const d = db.prepare("select * from duties where id=? and pump_id=? and status='submitted'").get(+q.params.id, pid);
+  if (!d) return s.status(404).json({ error: "Only duties waiting to be closed can be sent back to worker." });
+
+  // Update duty back to open so worker can edit and resubmit
+  db.prepare("update duties set status='open', submitted=null where id=? and pump_id=?").run(d.id, pid);
+
+  const w = db.prepare("select name from users where id=? and pump_id=?").get(d.worker_id, pid);
+  const workerName = w ? w.name : "worker";
+  const note = reason ? `: ${reason}` : "";
+  audit(q.user, "duty sent back", `Duty #${d.id} sent back to ${workerName} for corrections${note}`);
+
+  s.json({ ok: true, worker_name: workerName });
 });
 app.post("/api/duties/:id/close", need("owner", "manager"), (q, s) => {
   const pid = q.user.pump_id;
@@ -1181,7 +1421,11 @@ app.get("/api/duty-money", need("owner", "manager"), (q, s) => {
     const pay = {}, fuel = {}, lube = {}, exp = [];
     let fuelTotal = 0, lubeTotal = 0, credit = 0;
     ds.forEach((x) => {
-      Object.keys(x.pay).forEach((k) => (pay[k] = r2((pay[k] || 0) + (+x.pay[k] || 0))));
+      Object.keys(x.pay).forEach((k) => {
+        if (!k.startsWith('_')) {
+          pay[k] = r2((pay[k] || 0) + (+x.pay[k] || 0));
+        }
+      });
       x.lines.forEach((l) => { const k = l.fuel || "Other", o = fuel[k] || (fuel[k] = { litres: 0, amount: 0 }); o.litres = r2(o.litres + l.litres); o.amount = r2(o.amount + l.amount); });
       x.items.forEach((i) => { const o = lube[i.item_id] || (lube[i.item_id] = { item_id: i.item_id, name: i.name, qty: 0, amount: 0 }); o.qty = r2(o.qty + i.qty); o.amount = r2(o.amount + i.amount); });
       x.expenses.forEach((e) => exp.push({ cat: e.cat, note: e.note, amount: e.amount, worker: x.worker }));
