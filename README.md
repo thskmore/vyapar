@@ -3,7 +3,7 @@
 Node.js + SQLite backend with logins (owner, manager, worker), shared business data, and a worker screen that posts credit sales straight into the customer ledger.
 
 - `server.js`: the whole backend (one file)
-- `public/index.html`: the app (ledger, invoices, stock, suppliers, book, reports, backup, team, worker screen)
+- `public/index.html`: the app (ledger, stock and shop sales, suppliers, book, reports, backup, team, worker screen)
 - `data.db`: created on first run; this is all your data
 
 ## Roles
@@ -11,7 +11,7 @@ Node.js + SQLite backend with logins (owner, manager, worker), shared business d
 | Role | Can do |
 |---|---|
 | Owner | Everything: Pump setup, Salary, Team (managers and workers), approving the business day |
-| Manager | Assigns duties, reviews and closes them, closes the business day, daily summary, ledger, invoices, stock, suppliers, tanks, reports. Can add and manage workers in Team. No Pump setup, no Salary |
+| Manager | Assigns duties, reviews and closes them, closes the business day, daily summary, ledger, stock and shop sales, suppliers, tanks, reports. Can add and manage workers in Team. No Pump setup, no Salary |
 | Worker | Their assigned duty, credit sales, tank dips, and their own pay. Can open the full detail of their past duties |
 
 Worker credit sales appear in the customer ledger immediately. If a sale is over the customer's available credit, it is held as "waiting for approval" instead. Managers and the owner see it at the top of the Ledger tab and can approve it (it then posts to the ledger) or reject it. The worker sees the status on their screen.
@@ -90,8 +90,8 @@ A duty counts as short when the money handed in is ₹1 or more below what was e
 
 - **Duty money in the Book:** when the manager closes a business day, the money handed in by the workers appears in the **Book**. Cash goes to the Cash account, UPI to UPI / wallet, and card and other payment modes to Bank. Money a worker spent from the till is already deducted from what they hand in.
 - **Bank deposits:** in the Book, tap **Bank deposit** (date, amount, slip number, deposited by). It moves cash from Cash to Bank. The Book shows **Cash waiting to be banked**, the oldest unbanked day, and a table of recent days with cash handed in, banked and still to bank. Deposits are matched to the oldest days first.
-- **Reports tab:** the profit and loss now includes fuel sales and lube and shop sales from closed days, and duty expenses are included in expenses by category. If you also invoice a lube sale that was entered in a duty, it is counted twice, so invoice only sales that are not in a duty.
-- **Profit and margin:** the Reports tab also shows fuel margin per fuel (sales less the cost of the litres sold, from your delivery bills), shop and invoice margin (from each item's purchase price), and a net profit before worker pay. Cost per litre is the average of the deliveries in the period, or the latest earlier delivery. A fuel with no delivery cost shows "no cost" and is left out of the profit.
+- **Reports tab:** the profit and loss now includes fuel sales and lube and shop sales from closed days, and duty expenses are included in expenses by category. Shop sales recorded in Stock are added to lube and shop sales.
+- **Profit and margin:** the Reports tab also shows fuel margin per fuel (sales less the cost of the litres sold, from your delivery bills), shop sales margin (from each item's purchase price), and a net profit before worker pay. Cost per litre is the average of the deliveries in the period, or the latest earlier delivery. A fuel with no delivery cost shows "no cost" and is left out of the profit.
 
 The business date (the 6 AM to 6 AM day) comes from the server, so every phone agrees on the day.
 
@@ -105,15 +105,12 @@ The business date (the 6 AM to 6 AM day) comes from the server, so every phone a
 - the temperature, and
 - the density corrected to 15 °C.
 
-The Tanks tab lists recent readings and flags a reading when it is **outside the allowed range** for that fuel, or when it **differs from the invoice density by more than the tolerance**. The reading at 15 °C is used when it is entered, otherwise the measured one. Set the lowest, highest and tolerance for each fuel under Pump setup, Fuel products. The defaults shown there (for example 0.720 to 0.775 for petrol, 0.820 to 0.860 for diesel, tolerance 0.003) are common figures and are only a starting point: confirm them with your oil company's guidelines.
+The Tanks tab lists recent readings and flags a reading when it is **outside the allowed range** for that fuel, or when the tanker's mix density **differs from the chalan density by more than the tolerance**. The reading at 15 °C is used when it is entered, otherwise the measured one. Set the lowest, highest and tolerance for each fuel under Pump setup, Fuel products. The defaults shown there (for example 720 to 775 kg/m³ for petrol, 820 to 860 kg/m³ for diesel, tolerance 3 kg/m³) are common figures and are only a starting point: confirm them with your oil company's guidelines.
 
-## Shop products: categories, GST and Excel import
+## Shop products and shop sales
 
-- **Categories:** in the **Stock** tab, tap **Categories** to add or remove them, or type a new one when you add an item. The list is grouped by category and can be filtered.
-- **GST and HSN per product:** every product has a GST rate (0, 5, 12, 18 or 28 per cent) and an optional HSN code. On an invoice, picking a stock item fills in its GST rate and HSN, and each line can be changed. Items that are not in stock can be given any of the rates. The invoice shows HSN and GST per line and the CGST and SGST (or IGST) for each rate. The Reports tab shows a **GST by rate** table.
-- **Import from Excel:** in the Stock tab, tap **Import from Excel**. Download the template if you like. Your file (.xlsx or .csv) needs a heading row with at least **Name** and **Selling price**; other columns are Category, Unit, Purchase price, Opening stock, Low stock level, GST % and HSN. You see a preview of every row before anything is saved: new products can be added or skipped, products already in stock can be updated or skipped (you choose for each, or for all at once), and rows with a problem are shown with the reason. Updating an existing product changes only the columns that have a value in your file, and never its stock quantity. Categories in the file are created automatically.
-
-The HSN codes in the template are examples only. Use the codes that apply to your products.
+- **Categories and GST rates:** each stock item has a category, a GST rate (0, 5, 12, 18 or 28 per cent) and an optional HSN code. Import a list from Excel in the Stock tab, with a preview before anything is saved.
+- **Shop sales (manager):** in the Stock tab, tap **Record shop sale**. Choose the items and quantities and the payment mode. The total includes GST, stock goes down, and the money goes into the book of that payment mode. Recent shop sales are listed in the Stock tab.
 
 ## Marathi and Hindi for workers
 
@@ -123,6 +120,152 @@ Workers see a language picker (English, Marathi, Hindi) at the top of their scre
 - Owner and manager screens are in English.
 - The login screen is in English.
 - The translations are in one place in `public/index.html` (the `I18N` list near the top of the script), so any wording can be changed there. Please have someone who reads Marathi and Hindi check the wording, in particular the pay and shortage terms.
+
+## Offline mode and installing the app
+
+**Install on a phone:** open your pump's address in Chrome on Android and tap **Install app** (or the browser menu, then Add to Home screen). On an iPhone, open it in Safari, tap Share, then Add to Home Screen. The app opens full screen with its own icon. Installing and offline use need your site to be on HTTPS (step 6 of the Oracle setup).
+
+**Without a signal, a worker can still:**
+- open the app and see their assigned duty,
+- fill in and save the duty form (it is also saved on the phone every few seconds) and submit it,
+- save credit sales and tank dip readings,
+- see their last-loaded pay.
+
+Entries made without a signal are kept on the phone and listed under **Waiting to send** at the top of every worker screen, with the time. They are sent automatically, one after another in the order they were made, when the signal returns (and there is a **Send now** button). If the server refuses an entry, for example for an inactive customer, it stays in the list with the reason and the worker can **Discard** it. A duty waiting to be sent can be reopened with **Edit again**.
+
+Each entry carries a one-time key, so if a signal drops just as a request is sent, the retry never creates a second copy.
+
+Good to know:
+- The worker must have opened the app once with a signal after logging in, so the duty, customers, fuels and tanks are saved on the phone.
+- A credit sale made offline is checked against the customer's credit limit when it arrives. If it is over the limit it goes to the manager for approval, as usual. The date on it is the business day when it is sent.
+- Entries wait on the phone. If the worker clears the browser's data or uninstalls the app before they are sent, those entries are lost, so connect before the end of the day.
+- Owner and manager screens need a connection.
+
+## Stock and density registers
+
+In the **Registers** tab, pick the fuel and the month. There are two registers in the layout of your sheets:
+
+- **Stock register** (one per fuel, adding up all its tanks): opening stock, receipts, total stock, sales by meter, pump test, net sales by meter, cumulative sale, sales by dip, daily and cumulative variations.
+- **Density register** (one per fuel): the morning density of the main tank with its temperature and the density at 15 °C; each tanker receipt with the density of each compartment, the mix (the simple average of the compartments), the chalan density, the difference, the stock before receipt, the density at 15 °C after decantation, the receipt in KL and the chalan number.
+
+**How figures are taken:**
+- **Sales by meter** come from closed duties (closing minus opening reading, less testing litres). Nothing is typed in.
+- **Receipts** come from fuel deliveries.
+- **Dips:** when recording a dip, choose its purpose: Morning, Before receipt, After receipt or Closing. The app totals the dips of all the fuel's tanks for each purpose. Sales by dip = total stock − closing dip stock.
+- **Opening stock** is the previous day's closing. If a day has no closing dip, the next day's opening is carried from the last known closing and sales by dip is left blank for that day, so no figure is invented.
+- **Density at 15 °C** is worked out automatically from the measured density and temperature, using the standard petroleum table for gasolines and diesel (API MPMS 11.1). You can also type the 15 °C value if your records already have it.
+- **Mix density** of a tanker is the simple average of the compartment densities that were entered.
+- The main tank for each fuel is chosen in **Tanks** (tick *Main tank for the density register*). Only that tank's morning density is shown.
+
+The Remarks column is not included. The existing stock check and density list on the Tanks tab are still there. Both registers export to Excel and PDF. Only the owner and manager can see the registers.
+
+The density table uses the standard conversion, which checks out against the sample sheet to within about a third of a kg/m³ on the rows we compared. Your oil company's or the lab's figures remain the reference if they differ.
+
+## Meter register (per nozzle)
+
+The **Meter register** button in the Registers tab shows one line per day, one pair of columns per nozzle: the last pump reading (**Reading**) and the sale since the day before (**Sale**), with the nozzles' names and products. A **Check** column shows, for each day, the difference between the meter sale and the duty figures (closing minus opening, added up). 0 means they agree. Anything else is shown in red so you can find the duty or reading that does not match.
+
+- A nozzle starts from the **opening meter reading set in Pump setup** on the day it was added (the setup date is recorded when the nozzle is created). No history is imported from older sheets.
+- On a day with no duty on a nozzle, the reading stays the same and the sale is 0.
+- **Sales by meter in the stock register** come from this register, and the stock register notes how many days differ from the duty figures.
+- **One register for all tanks and products:** every nozzle is listed, grouped by product (for example Petrol MS and Diesel HSD), with a sale total for each product and one Check column for the day. The Fuel choice in the Registers tab does not change this register.
+- A product appears as soon as it has a nozzle, even before its tank is set up.
+
+## Look and layout on phone, tablet and desktop
+
+The screens adjust to the device:
+
+- **Phone:** the sections are a strip of tabs at the top that you swipe sideways (the current one is highlighted), with single-column cards. Workers see their four screens as large tiles.
+- **Tablet:** the same tab strip, with cards in two columns.
+- **Desktop:** the owner and manager get a sidebar with every section, and cards fill three columns beside it. Workers get a centred column.
+- **Dark mode** follows the phone or computer setting, or you can keep it on in the app's theme settings.
+
+The buttons and fields are large enough for a finger, and text is never smaller than a readable size on a phone.
+
+## Cash flow register
+
+**Cash flow** tab (owner and manager). The first time, enter the starting date and the cash in hand at 6 AM on that day. After that, each day is worked out automatically:
+
+**Cash in hand = opening + morning + evening + night − bank deposit + credit recovery − expenses**
+
+- **Opening:** the starting cash for the first day, then the cash in hand the day before. A day runs from 6 AM to 6 AM.
+- **Morning, evening and night:** the cash each shift handed in (cash only, not UPI or card) from duties the manager has closed. A duty still waiting to be closed is not counted yet.
+- **Bank deposit:** a bank deposit entered in the Book (cash moved to the bank).
+- **Credit recovery:** customer payments received in cash in the credit ledger.
+- **Expenses:** expenses entered in the Book and paid from the Cash account. UPI or bank expenses are not counted here.
+
+The cash in hand at the end of a day is the opening for the next day. A day with no activity carries the cash forward. Change the starting cash at any time with **Change starting cash**; that restarts the register from the new date. Export to Excel and PDF with the buttons on the screen.
+
+## Dashboards by role
+
+Each person sees a **Dashboard** (owner and manager) or **Home** (worker) tab first when they log in.
+
+- **Owner:** today's sales (fuel and lube and shop), money collected by mode, short or excess, duties today (closed, waiting, open), credit outstanding and how many customers are over their limit, credit sales waiting for approval, today's business-day status, cash in hand (from the cash flow), tanks with book stock and whether a dip was taken today, low stock, shortages for the month, a pay shortage table by worker, the sales of the last seven days, and today's sales by product.
+- **Manager:** the same operations figures as the owner, including cash in hand from the cash flow and the pay shortage table (each worker's short duties, amount short, amount waived and amount deducted from pay this month).
+- **Worker:** their own duty today (shift, nozzles and status), their credit sales today (saved and waiting for approval), their tank dips today, their pay for the month, a shortage status for the month (number of short duties, amount short, amount waived and amount deducted from pay), and their last five duties. Workers see nothing from other staff.
+
+Figures are for today's business day (6 AM to 6 AM). Money the workers save while offline is shown once it has been sent.
+
+## Expenses register
+
+**Expenses** tab (owner and manager). It lists every expense for the month in one register, from two sources:
+
+- **Duty expenses:** what each worker recorded on their duty (category, details, amount), taken from the till. They show the shift and the worker's name, and whether the duty is still waiting for the manager or closed.
+- **Manager expenses:** what the manager entered in the Book, with the category and the account it was paid from (Cash, UPI or Bank).
+
+The screen shows the month's total, the split between workers and manager, the daily totals, the totals by category, and every entry. Choose a category to filter everything on the screen. Export to Excel or PDF with the buttons on the screen.
+
+Duty expenses are already taken off the cash that the worker hands in, so they are not counted twice in the cash flow.
+
+## Books: one per payment mode
+
+The **Book** tab keeps a separate book for every payment mode you use (Cash, UPI, Card, and any others you add in Pump setup, such as Fleet card), plus a **Bank** book. Each book shows its own balance and entries:
+
+- Duty collections go to the book of the mode the worker entered them under. Customer payments, shop sales and supplier payments go to the book of the mode they were paid in.
+- Expenses, income and transfers are entered against a book. A transfer moves money between two books.
+- A bank deposit moves cash from the Cash book to the Bank book.
+- Opening balances are set per book. Older entries (recorded as Cash, UPI or Bank) are placed in the matching book automatically.
+
+Choose **All books** to see every movement, or open one book to see its running balance.
+
+## Salary and the Cash book
+
+Salary and advance payments made in cash are recorded in the Cash book as expenses (category Salary), so the Book and the cash flow both show the money going out. Deleting the payment on the Salary screen removes it from the Book too.
+
+## Cash count and payment slips
+
+On the duty form, the **Money collected** boxes open a popup when tapped:
+
+- **Cash:** enter how many notes and coins you counted (₹2,000, ₹500, ₹200, ₹100, ₹50, ₹20, ₹10 and the coins). The total fills the Cash box.
+- **UPI, card and other modes:** enter one line per slip, with the slip or reference number and the amount. The total fills that box.
+
+When the worker submits, the notes must add up to the cash collected and the slips must add up to each mode's amount, or the duty is not sent. The manager sees the notes and slips on the duty when reviewing it. Drafts keep the counts too.
+
+## Worker tabs: shop sale, expense, hand-over
+
+- **Shop sale:** next to Credit sale. Items, quantity and payment mode; no approval. Stock goes down and the money goes to that mode's book.
+- **Expense:** records money paid from the till during an open duty (category, details, amount). It comes off the cash the worker hands in.
+- **Nozzles:** a nozzle is free as soon as the worker submits the duty, so the manager can assign it straight away.
+- **Hand-over:** on today's submitted duty, **Hand over nozzle** passes the nozzle to another worker, starting from the reading the worker closed at. No approval needed.
+- **Send back:** the manager can send a submitted duty back to the worker to correct. The nozzle stays with the same worker, as long as no one else has been given it in the meantime.
+- **Cash count:** notes ₹500 to ₹5 are counted one by one; coins are entered as one rupee amount.
+- **Slip numbers:** each slip on a duty is numbered automatically (SL-001, SL-002, ...) and restarts on each duty.
+
+## Excess cash
+
+When a worker hands in more cash than the duty expects, the excess is credited to that worker's advance balance. It is used only in the salary calculation: it reduces the advances the worker has taken, and any surplus adds to their pay. It is not paid out separately, and it does not change the Cash book. Short cash still comes off the worker's pay.
+
+## Payroll report
+
+The **Pay report** tab (owner and manager) shows the pay for the month, one section per worker. Each section lists every closed duty day by day (shift, nozzles, litres, sales, cash collected, short or excess, duty pay), with advances, bonuses, salary payments and excess credits on the day they were made. A summary at the end gives the net pay and the balance to pay. The owner and manager see every worker. A worker sees only their own report, from the **Monthly report** button on the My pay screen. Export to Excel or PDF with the buttons on the screen.
+
+## Send back and hand-over locks
+
+- The manager can send back any submitted duty to the worker to correct, even when its nozzle has been handed to another worker.
+- While a nozzle is handed over, its **closing meter reading** is locked. The worker can still correct everything else (testing litres, cash, slips, expenses, shop items and notes).
+- Only the worker corrects a closing reading. The manager cannot change it on a submitted duty; the manager sends the duty back instead.
+- To correct a locked closing, the manager cancels the hand-over. The receiving duty is removed (it does not show on the other worker's screen), and the closing unlocks.
+- After the worker corrects and resubmits, the manager assigns the nozzle again, and the new opening is the corrected closing.
 
 ## Try it on your computer
 
@@ -150,6 +293,7 @@ node server.js
    ```bash
    cd /opt/petrol-app && npm install --omit=dev
    ```
+   The project already includes a ready-made SQLite engine for both Intel and ARM (Ampere) servers, and a `.npmrc` file that stops npm from trying to compile anything, so you do not need build tools. It needs Node 22 or newer. Copy the hidden `.npmrc` file too (`scp -r` and zip both include it).
 5. **Run it as a service.** Create `/etc/systemd/system/petrol.service`:
    ```ini
    [Unit]
@@ -194,11 +338,11 @@ sqlite3 /opt/petrol-app/data.db ".backup ~/data-$(date +%F).db"
 
 ## Audit log
 
-The owner sees **Pump setup, then Audit log**: every change with who made it and when. It covers edits to customers, invoices, stock, suppliers, rates and other business data (for example "Customers changed: Shree (entries 3 to 4)"), plus duty assignment, closing, reopening and corrections (with the before and after figures), day close and approval, credit approvals, pay entries, dips, user changes, logins, backups and restores.
+The owner sees **Pump setup, then Audit log**: every change with who made it and when. It covers edits to customers, shop sales, stock, suppliers, rates and other business data (for example "Customers changed: Shree (entries 3 to 4)"), plus duty assignment, closing, reopening and corrections (with the before and after figures), day close and approval, credit approvals, pay entries, dips, user changes, logins, backups and restores.
 
 ## Good to know
 
-- Business data is stored in separate sections (customers, invoices, stock, suppliers, book, business details, tanks, setup). Two people only clash if they change the same section at the same moment, and then the second person is told which section and asked to reload.
+- Business data is stored in separate sections (customers, shop sales, stock, suppliers, book, business details, tanks, setup). Two people only clash if they change the same section at the same moment, and then the second person is told which section and asked to reload.
 - Worker credit sales are separate again, so they never clash.
 - After 5 wrong passwords, that mobile number is locked for 15 minutes.
 - Forgot the owner password? Stop the server, then run:
